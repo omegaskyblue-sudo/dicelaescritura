@@ -4,8 +4,8 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
-    "db:migrar": "wrangler d1 migrations apply estudio-faceless --remote",
-    "db:migrar:local": "wrangler d1 migrations apply estudio-faceless --local",
+    "db:migrar": "wrangler d1 migrations apply yaicontenido --remote",
+    "db:migrar:local": "wrangler d1 migrations apply yaicontenido --local",
     "deploy": "wrangler deploy"
   },
   "dependencies": {

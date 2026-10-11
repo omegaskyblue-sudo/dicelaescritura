@@ -14,7 +14,7 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "estudio-faceless",
+      "database_name": "yaicontenido",
       "database_id": "d9bbc79c-1696-4139-9c83-af09c6d80ac4",
       "migrations_dir": "migrations"
     }

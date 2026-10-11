@@ -24,7 +24,7 @@ En GitHub Pages (`public/`) la web funciona en modo manual, sin login, YouTube n
 ### Publicar en Cloudflare (desde el panel, sin terminal)
 
 1. **Crear la base de datos**: dash.cloudflare.com → *Storage & Databases* → *D1 SQL Database* →
-   *Create* → nombre `estudio-faceless` (ya creada; su ID está en `wrangler.jsonc`).
+   *Create* → nombre `yaicontenido` (ya creada; su ID está en `wrangler.jsonc`).
 2. **Crear las tablas**: en esa base de datos → *Console* → pega el contenido de
    `migrations/0001_inicial.sql` → *Execute*.
 3. **Poner el ID** en `wrangler.jsonc` (`database_id`) y subirlo al repositorio.
@@ -43,7 +43,7 @@ En GitHub Pages (`public/`) la web funciona en modo manual, sin login, YouTube n
 ```bash
 npm install
 npx wrangler login
-npx wrangler d1 create estudio-faceless      # copia el database_id a wrangler.jsonc
+npx wrangler d1 create yaicontenido          # copia el database_id a wrangler.jsonc
 npm run db:migrar                            # crea las tablas en Cloudflare
 npx wrangler secret put ANTHROPIC_API_KEY
 npx wrangler secret put YOUTUBE_API_KEY
