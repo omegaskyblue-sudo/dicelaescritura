@@ -349,3 +349,6 @@ document.querySelectorAll('form.ajuste').forEach((f) => f.addEventListener('subm
     } catch (err) { fallo(err); }
     finally { boton.disabled = false; boton.textContent = txt; }
 }));
+
+// Al cambiar de pestaña, que la pestaña activa quede visible en la barra deslizable (móvil).
+$('tabs').addEventListener('click', (e) => e.target.scrollIntoView?.({ inline: 'center', block: 'nearest', behavior: 'smooth' }));
