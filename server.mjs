@@ -4,6 +4,7 @@ import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import Anthropic from '@anthropic-ai/sdk';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -12,6 +13,18 @@ const MODEL = process.env.CLAUDE_MODEL || 'claude-opus-5-5';
 const YT = 'https://www.googleapis.com/youtube/v3';
 const PUBLICOS = new Set(['index.html', 'style.css', 'plataforma.html', 'plataforma.css', 'plataforma.js']);
 const TIPOS = { '.html': 'text/html; charset=utf-8', '.css': 'text/css', '.js': 'text/javascript' };
+
+// Si ACCESS_PASSWORD está definida, toda la web exige usuario/contraseña (HTTP Basic).
+// Imprescindible en un despliegue público: sin ella cualquiera gastaría tus claves.
+const hash = (s) => createHash('sha256').update(s).digest();
+const CLAVE = process.env.ACCESS_PASSWORD ? hash(process.env.ACCESS_PASSWORD) : null;
+function autorizado(req) {
+    if (!CLAVE) return true;
+    const m = (req.headers.authorization || '').match(/^Basic (.+)$/);
+    if (!m) return false;
+    const pass = Buffer.from(m[1], 'base64').toString().split(':').slice(1).join(':');
+    return timingSafeEqual(hash(pass), CLAVE);
+}
 
 const anthropic = process.env.ANTHROPIC_API_KEY ? new Anthropic() : null;
 
@@ -119,6 +132,11 @@ const enviar = (res, status, data) => {
 
 http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
+    if (url.pathname === '/healthz') { res.writeHead(200); return res.end('ok'); }
+    if (!autorizado(req)) {
+        res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="Estudio Faceless", charset="UTF-8"' });
+        return res.end('Acceso restringido');
+    }
     try {
         if (url.pathname === '/api/estado') {
             return enviar(res, 200, { youtube: !!process.env.YOUTUBE_API_KEY, claude: !!anthropic, modelo: MODEL });
@@ -143,4 +161,7 @@ http.createServer(async (req, res) => {
         if (!(e instanceof HttpError)) console.error(e);
         enviar(res, status, { error: msg });
     }
-}).listen(PORT, () => console.log(`Estudio Faceless en http://localhost:${PORT}/plataforma.html`));
+}).listen(PORT, () => {
+    console.log(`Estudio Faceless en http://localhost:${PORT}/plataforma.html`);
+    if (!CLAVE) console.warn('Aviso: ACCESS_PASSWORD no definida; la web es accesible sin contraseña.');
+});
