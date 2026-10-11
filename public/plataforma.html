@@ -168,6 +168,8 @@
     <form class="ajuste" data-clave="ANTHROPIC_API_KEY">
         <label>Clave de Claude <span class="hint">(platform.claude.com → API Keys, empieza por sk-ant-…)</span>
             <input type="password" autocomplete="off" placeholder="sk-ant-…"></label>
+        <label>ID del espacio de trabajo <span class="hint">(solo si la clave lo pide: platform.claude.com → Settings → Workspaces, empieza por wrkspc_)</span>
+            <input name="workspace" autocomplete="off" placeholder="wrkspc_…"></label>
         <p class="hint actual"></p>
         <button>Comprobar y guardar</button>
     </form>

@@ -326,6 +326,8 @@ async function pintarConfig() {
     let c;
     try { c = await api('/api/configuracion'); } catch (err) { return fallo(err); }
     $('cfgModelo').innerHTML = c.modelos.map((m) => `<option${m === c.ajustes.CLAUDE_MODEL.valor ? ' selected' : ''}>${m}</option>`).join('');
+    const ws = document.querySelector('form.ajuste [name=workspace]');
+    if (ws) ws.value = c.workspace || '';
     document.querySelectorAll('form.ajuste').forEach((f) => {
         const a = c.ajustes[f.dataset.clave];
         f.querySelector('.actual').textContent = !a.origen ? 'Sin configurar.'
@@ -334,11 +336,11 @@ async function pintarConfig() {
 }
 document.querySelectorAll('form.ajuste').forEach((f) => f.addEventListener('submit', async (ev) => {
     ev.preventDefault();
-    const campo = f.querySelector('input, select'), boton = f.querySelector('button'), txt = boton.textContent;
+    const campo = f.querySelector('input:not([name=workspace]), select'), boton = f.querySelector('button'), txt = boton.textContent;
     if (!campo.value && !confirm('¿Borrar esta clave guardada?')) return;
     boton.disabled = true; boton.textContent = 'Comprobando…';
     try {
-        await api('/api/configuracion', json('PUT', { clave: f.dataset.clave, valor: campo.value }));
+        await api('/api/configuracion', json('PUT', { clave: f.dataset.clave, valor: campo.value, workspace: f.workspace?.value }));
         if (campo.tagName === 'INPUT') campo.value = '';
         await pintarConfig();
         const e = await api('/api/estado');

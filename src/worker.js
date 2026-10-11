@@ -186,7 +186,7 @@ No inventes cifras ni fuentes; si un dato es incierto, márcalo como [VERIFICAR]
 async function claude(env, prompt) {
     if (!env.ANTHROPIC_API_KEY) throw new HttpError(503, 'Falta la clave de Claude (Configuración)');
     if (typeof prompt !== 'string' || !prompt.trim()) throw new HttpError(400, 'Prompt vacío');
-    const anthropic = clienteClaude(env.ANTHROPIC_API_KEY, env.ANTHROPIC_AUTH);
+    const anthropic = clienteClaude(env.ANTHROPIC_API_KEY, env.ANTHROPIC_AUTH, env.ANTHROPIC_WORKSPACE_ID);
     const stream = anthropic.beta.messages.stream({
         model: env.CLAUDE_MODEL || 'claude-opus-5-5',
         max_tokens: 64000,
@@ -212,8 +212,14 @@ const MODELOS = ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'];
 
 // Las claves de la consola de Claude se envían como x-api-key; otros tipos de credencial
 // (p. ej. tokens de usuario) como Authorization: Bearer. Se guarda el modo que funcionó.
-const clienteClaude = (clave, modo, opciones = {}) =>
-    new Anthropic(modo === 'authToken' ? { authToken: clave, apiKey: null, ...opciones } : { apiKey: clave, ...opciones });
+// Las claves de usuario (no ligadas a un espacio de trabajo) necesitan además la cabecera
+// anthropic-workspace-id con el ID del espacio de trabajo (wrkspc_…).
+function clienteClaude(clave, modo, workspace, opciones = {}) {
+    const auth = modo === 'authToken' ? { authToken: clave, apiKey: null } : { apiKey: clave };
+    const defaultHeaders = workspace ? { 'anthropic-workspace-id': workspace } : undefined;
+    return new Anthropic({ ...auth, defaultHeaders, ...opciones });
+}
+const pideWorkspace = (e) => e instanceof Anthropic.BadRequestError && /anthropic-workspace-id/.test(e.message);
 
 async function configuracion(env) {
     const { results } = await env.DB.prepare('SELECT clave, valor, actualizado_por, actualizado_en FROM configuracion').all();
@@ -224,18 +230,20 @@ async function configuracion(env) {
         meta[k] = { origen: db[k] ? 'web' : env[k] ? 'cloudflare' : null, por: db[k]?.actualizado_por, en: db[k]?.actualizado_en };
     }
     cfg.ANTHROPIC_AUTH = db.ANTHROPIC_AUTH?.valor || 'apiKey';
+    cfg.ANTHROPIC_WORKSPACE_ID = db.ANTHROPIC_WORKSPACE_ID?.valor || env.ANTHROPIC_WORKSPACE_ID || '';
+    meta.ANTHROPIC_WORKSPACE_ID = cfg.ANTHROPIC_WORKSPACE_ID;
     return { cfg, meta };
 }
 const enmascarar = (v) => (v ? `${v.slice(0, 7)}…${v.slice(-4)}` : '');
 
 // Comprueba que una clave funciona antes de guardarla.
-async function probarClave(clave, valor) {
+async function probarClave(clave, valor, workspace) {
     if (clave === 'ANTHROPIC_API_KEY') {
         if (!valor.startsWith('sk-ant-')) throw new HttpError(400, 'La clave de Claude debe empezar por "sk-ant-". Créala en platform.claude.com → API Keys.');
         let ultimo;
         for (const modo of ['apiKey', 'authToken']) {
             try {
-                await clienteClaude(valor, modo, { maxRetries: 0 }).models.list({ limit: 1 });
+                await clienteClaude(valor, modo, workspace, { maxRetries: 0 }).models.list({ limit: 1 });
                 return modo;
             } catch (e) {
                 ultimo = e;
@@ -243,6 +251,11 @@ async function probarClave(clave, valor) {
             }
         }
         if (ultimo instanceof Anthropic.AuthenticationError) throw new HttpError(400, 'Claude rechaza la clave (no válida o revocada).');
+        if (pideWorkspace(ultimo)) {
+            throw new HttpError(400, workspace
+                ? 'Claude no acepta ese ID de espacio de trabajo para esta clave. Revísalo en platform.claude.com → Settings → Workspaces.'
+                : 'Esta clave no está ligada a un espacio de trabajo: rellena también "ID del espacio de trabajo" (platform.claude.com → Settings → Workspaces, empieza por wrkspc_), o crea una clave dentro de un espacio de trabajo.');
+        }
         if (ultimo instanceof Anthropic.PermissionDeniedError) throw new HttpError(400, `Claude no permite usar esta clave para la API: ${ultimo.message}`);
         throw new HttpError(502, `No se pudo comprobar la clave de Claude: ${ultimo.message}`);
     }
@@ -279,7 +292,7 @@ async function api(req, env, url, u) {
         soloAdmin();
         if (m === 'GET') {
             const { cfg, meta } = await configuracion(env);
-            return enviar(200, { modelos: MODELOS, ajustes: Object.fromEntries(AJUSTES.map((k) =>
+            return enviar(200, { modelos: MODELOS, workspace: meta.ANTHROPIC_WORKSPACE_ID, ajustes: Object.fromEntries(AJUSTES.map((k) =>
                 [k, { ...meta[k], valor: SECRETOS.has(k) ? enmascarar(cfg[k]) : cfg[k] }])) });
         }
         if (m === 'PUT') {
@@ -288,13 +301,22 @@ async function api(req, env, url, u) {
             if (!AJUSTES.includes(clave)) throw new HttpError(400, 'Ajuste desconocido');
             if (!valor) { // vaciar: vuelve a usar el secreto del Worker, si existe
                 await DB.prepare('DELETE FROM configuracion WHERE clave = ?').bind(clave).run();
-                if (clave === 'ANTHROPIC_API_KEY') await DB.prepare("DELETE FROM configuracion WHERE clave = 'ANTHROPIC_AUTH'").run();
+                if (clave === 'ANTHROPIC_API_KEY') {
+                    await DB.prepare("DELETE FROM configuracion WHERE clave IN ('ANTHROPIC_AUTH', 'ANTHROPIC_WORKSPACE_ID')").run();
+                }
                 return ok();
             }
-            const modo = await probarClave(clave, valor);
+            const workspace = String(b.workspace ?? '').trim();
+            if (workspace && !/^[\w-]{3,100}$/.test(workspace)) throw new HttpError(400, 'ID de espacio de trabajo no válido');
+            const modo = await probarClave(clave, valor, workspace);
             if (clave === 'ANTHROPIC_API_KEY') {
-                await DB.prepare(`INSERT INTO configuracion (clave, valor, actualizado_por) VALUES ('ANTHROPIC_AUTH', ?1, ?2)
-                    ON CONFLICT (clave) DO UPDATE SET valor = ?1, actualizado_por = ?2`).bind(modo, u.nombre).run();
+                const guardar = DB.prepare(`INSERT INTO configuracion (clave, valor, actualizado_por) VALUES (?1, ?2, ?3)
+                    ON CONFLICT (clave) DO UPDATE SET valor = ?2, actualizado_por = ?3`);
+                await DB.batch([
+                    guardar.bind('ANTHROPIC_AUTH', modo, u.nombre),
+                    workspace ? guardar.bind('ANTHROPIC_WORKSPACE_ID', workspace, u.nombre)
+                        : DB.prepare("DELETE FROM configuracion WHERE clave = 'ANTHROPIC_WORKSPACE_ID'"),
+                ]);
             }
             await DB.prepare(`INSERT INTO configuracion (clave, valor, actualizado_por) VALUES (?1, ?2, ?3)
                 ON CONFLICT (clave) DO UPDATE SET valor = ?2, actualizado_por = ?3,
