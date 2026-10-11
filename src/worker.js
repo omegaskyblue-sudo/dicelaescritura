@@ -186,7 +186,7 @@ No inventes cifras ni fuentes; si un dato es incierto, márcalo como [VERIFICAR]
 async function claude(env, prompt) {
     if (!env.ANTHROPIC_API_KEY) throw new HttpError(503, 'Falta la clave de Claude (Configuración)');
     if (typeof prompt !== 'string' || !prompt.trim()) throw new HttpError(400, 'Prompt vacío');
-    const anthropic = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+    const anthropic = clienteClaude(env.ANTHROPIC_API_KEY, env.ANTHROPIC_AUTH);
     const stream = anthropic.beta.messages.stream({
         model: env.CLAUDE_MODEL || 'claude-opus-5-5',
         max_tokens: 64000,
@@ -210,6 +210,11 @@ const AJUSTES = ['ANTHROPIC_API_KEY', 'YOUTUBE_API_KEY', 'CLAUDE_MODEL'];
 const SECRETOS = new Set(['ANTHROPIC_API_KEY', 'YOUTUBE_API_KEY']);
 const MODELOS = ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'];
 
+// Las claves de la consola de Claude se envían como x-api-key; otros tipos de credencial
+// (p. ej. tokens de usuario) como Authorization: Bearer. Se guarda el modo que funcionó.
+const clienteClaude = (clave, modo, opciones = {}) =>
+    new Anthropic(modo === 'authToken' ? { authToken: clave, apiKey: null, ...opciones } : { apiKey: clave, ...opciones });
+
 async function configuracion(env) {
     const { results } = await env.DB.prepare('SELECT clave, valor, actualizado_por, actualizado_en FROM configuracion').all();
     const db = Object.fromEntries(results.map((r) => [r.clave, r]));
@@ -218,6 +223,7 @@ async function configuracion(env) {
         cfg[k] = db[k]?.valor || env[k] || (k === 'CLAUDE_MODEL' ? MODELOS[0] : '');
         meta[k] = { origen: db[k] ? 'web' : env[k] ? 'cloudflare' : null, por: db[k]?.actualizado_por, en: db[k]?.actualizado_en };
     }
+    cfg.ANTHROPIC_AUTH = db.ANTHROPIC_AUTH?.valor || 'apiKey';
     return { cfg, meta };
 }
 const enmascarar = (v) => (v ? `${v.slice(0, 7)}…${v.slice(-4)}` : '');
@@ -225,12 +231,20 @@ const enmascarar = (v) => (v ? `${v.slice(0, 7)}…${v.slice(-4)}` : '');
 // Comprueba que una clave funciona antes de guardarla.
 async function probarClave(clave, valor) {
     if (clave === 'ANTHROPIC_API_KEY') {
-        if (!valor.startsWith('sk-ant-api')) throw new HttpError(400, 'La clave de Claude debe empezar por "sk-ant-api". Créala en platform.claude.com → API Keys.');
-        try { await new Anthropic({ apiKey: valor, maxRetries: 0 }).models.list({ limit: 1 }); }
-        catch (e) {
-            if (e instanceof Anthropic.AuthenticationError) throw new HttpError(400, 'Claude rechaza la clave (no válida o revocada).');
-            throw new HttpError(502, `No se pudo comprobar la clave de Claude: ${e.message}`);
+        if (!valor.startsWith('sk-ant-')) throw new HttpError(400, 'La clave de Claude debe empezar por "sk-ant-". Créala en platform.claude.com → API Keys.');
+        let ultimo;
+        for (const modo of ['apiKey', 'authToken']) {
+            try {
+                await clienteClaude(valor, modo, { maxRetries: 0 }).models.list({ limit: 1 });
+                return modo;
+            } catch (e) {
+                ultimo = e;
+                if (!(e instanceof Anthropic.AuthenticationError)) break;
+            }
         }
+        if (ultimo instanceof Anthropic.AuthenticationError) throw new HttpError(400, 'Claude rechaza la clave (no válida o revocada).');
+        if (ultimo instanceof Anthropic.PermissionDeniedError) throw new HttpError(400, `Claude no permite usar esta clave para la API: ${ultimo.message}`);
+        throw new HttpError(502, `No se pudo comprobar la clave de Claude: ${ultimo.message}`);
     }
     if (clave === 'YOUTUBE_API_KEY') {
         const res = await fetch(`${YT}/videos?part=id&id=dQw4w9WgXcQ&key=${encodeURIComponent(valor)}`);
@@ -274,9 +288,14 @@ async function api(req, env, url, u) {
             if (!AJUSTES.includes(clave)) throw new HttpError(400, 'Ajuste desconocido');
             if (!valor) { // vaciar: vuelve a usar el secreto del Worker, si existe
                 await DB.prepare('DELETE FROM configuracion WHERE clave = ?').bind(clave).run();
+                if (clave === 'ANTHROPIC_API_KEY') await DB.prepare("DELETE FROM configuracion WHERE clave = 'ANTHROPIC_AUTH'").run();
                 return ok();
             }
-            await probarClave(clave, valor);
+            const modo = await probarClave(clave, valor);
+            if (clave === 'ANTHROPIC_API_KEY') {
+                await DB.prepare(`INSERT INTO configuracion (clave, valor, actualizado_por) VALUES ('ANTHROPIC_AUTH', ?1, ?2)
+                    ON CONFLICT (clave) DO UPDATE SET valor = ?1, actualizado_por = ?2`).bind(modo, u.nombre).run();
+            }
             await DB.prepare(`INSERT INTO configuracion (clave, valor, actualizado_por) VALUES (?1, ?2, ?3)
                 ON CONFLICT (clave) DO UPDATE SET valor = ?2, actualizado_por = ?3,
                 actualizado_en = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`).bind(clave, valor, u.nombre).run();
