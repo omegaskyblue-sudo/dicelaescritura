@@ -116,7 +116,7 @@ async function cambiarPassword(env, nombre, pass, tokenActual) {
 
 // ---------- YouTube ----------
 async function yt(env, endpoint, params) {
-    if (!env.YOUTUBE_API_KEY) throw new HttpError(503, 'Falta el secreto YOUTUBE_API_KEY');
+    if (!env.YOUTUBE_API_KEY) throw new HttpError(503, 'Falta la clave de YouTube (Configuración)');
     const url = new URL(`${YT}/${endpoint}`);
     for (const [k, v] of Object.entries({ ...params, key: env.YOUTUBE_API_KEY })) url.searchParams.set(k, v);
     const res = await fetch(url);
@@ -184,7 +184,7 @@ Priorizas contenido original que aporte valor real a la audiencia: investigació
 No inventes cifras ni fuentes; si un dato es incierto, márcalo como [VERIFICAR]. Responde en español.`;
 
 async function claude(env, prompt) {
-    if (!env.ANTHROPIC_API_KEY) throw new HttpError(503, 'Falta el secreto ANTHROPIC_API_KEY');
+    if (!env.ANTHROPIC_API_KEY) throw new HttpError(503, 'Falta la clave de Claude (Configuración)');
     if (typeof prompt !== 'string' || !prompt.trim()) throw new HttpError(400, 'Prompt vacío');
     const anthropic = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
     const stream = anthropic.beta.messages.stream({
@@ -203,6 +203,45 @@ async function claude(env, prompt) {
     return { texto, truncado: msg.stop_reason === 'max_tokens', uso: msg.usage };
 }
 
+// ---------- Configuración (claves editables desde la web) ----------
+// Los valores guardados en D1 desde la pestaña Configuración tienen prioridad sobre
+// los secretos del Worker. Las claves nunca se devuelven al navegador, solo enmascaradas.
+const AJUSTES = ['ANTHROPIC_API_KEY', 'YOUTUBE_API_KEY', 'CLAUDE_MODEL'];
+const SECRETOS = new Set(['ANTHROPIC_API_KEY', 'YOUTUBE_API_KEY']);
+const MODELOS = ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'];
+
+async function configuracion(env) {
+    const { results } = await env.DB.prepare('SELECT clave, valor, actualizado_por, actualizado_en FROM configuracion').all();
+    const db = Object.fromEntries(results.map((r) => [r.clave, r]));
+    const cfg = {}, meta = {};
+    for (const k of AJUSTES) {
+        cfg[k] = db[k]?.valor || env[k] || (k === 'CLAUDE_MODEL' ? MODELOS[0] : '');
+        meta[k] = { origen: db[k] ? 'web' : env[k] ? 'cloudflare' : null, por: db[k]?.actualizado_por, en: db[k]?.actualizado_en };
+    }
+    return { cfg, meta };
+}
+const enmascarar = (v) => (v ? `${v.slice(0, 7)}…${v.slice(-4)}` : '');
+
+// Comprueba que una clave funciona antes de guardarla.
+async function probarClave(clave, valor) {
+    if (clave === 'ANTHROPIC_API_KEY') {
+        if (!valor.startsWith('sk-ant-api')) throw new HttpError(400, 'La clave de Claude debe empezar por "sk-ant-api". Créala en platform.claude.com → API Keys.');
+        try { await new Anthropic({ apiKey: valor, maxRetries: 0 }).models.list({ limit: 1 }); }
+        catch (e) {
+            if (e instanceof Anthropic.AuthenticationError) throw new HttpError(400, 'Claude rechaza la clave (no válida o revocada).');
+            throw new HttpError(502, `No se pudo comprobar la clave de Claude: ${e.message}`);
+        }
+    }
+    if (clave === 'YOUTUBE_API_KEY') {
+        const res = await fetch(`${YT}/videos?part=id&id=dQw4w9WgXcQ&key=${encodeURIComponent(valor)}`);
+        if (!res.ok) {
+            const d = await res.json().catch(() => ({}));
+            throw new HttpError(400, `YouTube rechaza la clave: ${d.error?.message || res.status}`);
+        }
+    }
+    if (clave === 'CLAUDE_MODEL' && !MODELOS.includes(valor)) throw new HttpError(400, 'Modelo no válido');
+}
+
 // ---------- API con sesión ----------
 async function api(req, env, url, u) {
     const p = url.pathname, m = req.method, DB = env.DB;
@@ -211,11 +250,39 @@ async function api(req, env, url, u) {
     let x;
 
     if (p === '/api/estado') {
+        const { cfg } = await configuracion(env);
         return enviar(200, { usuario: u.nombre, admin: u.admin, db: true,
-            youtube: !!env.YOUTUBE_API_KEY, claude: !!env.ANTHROPIC_API_KEY, modelo: env.CLAUDE_MODEL || 'claude-opus-5-5' });
+            youtube: !!cfg.YOUTUBE_API_KEY, claude: !!cfg.ANTHROPIC_API_KEY, modelo: cfg.CLAUDE_MODEL });
     }
-    if (p === '/api/youtube/canal' && m === 'GET') return enviar(200, await canal(env, url.searchParams.get('q') || ''));
-    if (p === '/api/claude' && m === 'POST') return enviar(200, await claude(env, (await leerJson(req)).prompt));
+    if (p === '/api/youtube/canal' && m === 'GET') {
+        return enviar(200, await canal((await configuracion(env)).cfg, url.searchParams.get('q') || ''));
+    }
+    if (p === '/api/claude' && m === 'POST') {
+        return enviar(200, await claude((await configuracion(env)).cfg, (await leerJson(req)).prompt));
+    }
+
+    if (p === '/api/configuracion') {
+        soloAdmin();
+        if (m === 'GET') {
+            const { cfg, meta } = await configuracion(env);
+            return enviar(200, { modelos: MODELOS, ajustes: Object.fromEntries(AJUSTES.map((k) =>
+                [k, { ...meta[k], valor: SECRETOS.has(k) ? enmascarar(cfg[k]) : cfg[k] }])) });
+        }
+        if (m === 'PUT') {
+            const b = await leerJson(req);
+            const clave = String(b.clave), valor = String(b.valor ?? '').trim();
+            if (!AJUSTES.includes(clave)) throw new HttpError(400, 'Ajuste desconocido');
+            if (!valor) { // vaciar: vuelve a usar el secreto del Worker, si existe
+                await DB.prepare('DELETE FROM configuracion WHERE clave = ?').bind(clave).run();
+                return ok();
+            }
+            await probarClave(clave, valor);
+            await DB.prepare(`INSERT INTO configuracion (clave, valor, actualizado_por) VALUES (?1, ?2, ?3)
+                ON CONFLICT (clave) DO UPDATE SET valor = ?2, actualizado_por = ?3,
+                actualizado_en = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`).bind(clave, valor, u.nombre).run();
+            return ok();
+        }
+    }
 
     if (p === '/api/logout' && m === 'POST') {
         await DB.prepare('DELETE FROM sesiones WHERE token_hash = ?').bind(await sha256(leerCookie(req) || '')).run();

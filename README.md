@@ -26,16 +26,17 @@ En GitHub Pages (`public/`) la web funciona en modo manual, sin login, YouTube n
 1. **Crear la base de datos**: dash.cloudflare.com → *Storage & Databases* → *D1 SQL Database* →
    *Create* → nombre `yaicontenido` (ya creada; su ID está en `wrangler.jsonc`).
 2. **Crear las tablas**: en esa base de datos → *Console* → pega el contenido de
-   `migrations/0001_inicial.sql` → *Execute*.
+   `migrations/0001_inicial.sql` → *Execute*; repite con `migrations/0002_configuracion.sql`.
 3. **Poner el ID** en `wrangler.jsonc` (`database_id`) y subirlo al repositorio.
 4. **Crear el Worker**: *Workers & Pages* → *Create* → *Import a repository* → este repositorio y la rama.
    Comando de despliegue: `npx wrangler deploy` (el que propone por defecto).
-5. **Secretos**: en el Worker → *Settings* → *Variables and Secrets* → añade como **Secret**:
-   - `ANTHROPIC_API_KEY`
-   - `YOUTUBE_API_KEY`
+5. **Secreto**: en el Worker → *Settings* → *Variables and Secrets* → añade como **Secret**:
    - `ACCESS_USERS`: usuarios iniciales `usuario:contraseña` separados por comas. **El primero es administrador.**
      Solo se usa mientras la base de datos no tiene usuarios; después se gestionan desde la web.
-6. Abre `https://yaicontenido.<tu-subdominio>.workers.dev/plataforma.html` e inicia sesión.
+6. Las claves de Claude y YouTube se ponen desde la web: pestaña **Configuración** (solo administradores).
+   Se comprueban antes de guardarse y nunca se vuelven a mostrar completas.
+   (También pueden ponerse como secretos `ANTHROPIC_API_KEY` / `YOUTUBE_API_KEY`; la web tiene prioridad.)
+7. Abre `https://yaicontenido.<tu-subdominio>.workers.dev/plataforma.html` e inicia sesión.
    Cambia la contraseña nada más entrar.
 
 ### Publicar desde la terminal (alternativa)

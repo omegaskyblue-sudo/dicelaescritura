@@ -25,6 +25,7 @@
     <button data-tab="metricas">4. Métricas</button>
     <button data-tab="playbook">5. Playbook</button>
     <button data-tab="equipo" id="tabEquipo" hidden>Equipo</button>
+    <button data-tab="configuracion" id="tabConfig" hidden>Configuración</button>
 </nav>
 
 <main>
@@ -156,6 +157,30 @@
         </div>
         <label class="check"><input name="admin" type="checkbox"> Administrador (puede gestionar usuarios)</label>
         <button>Añadir</button>
+    </form>
+</section>
+
+<!-- CONFIGURACIÓN (solo administradores) -->
+<section id="configuracion" class="panel">
+    <h2>Configuración</h2>
+    <p class="hint">Claves de las APIs. Se comprueban antes de guardarse, se guardan en el servidor y nunca se vuelven a mostrar completas.
+        Deja un campo vacío y guarda para borrarla (se usará el secreto de Cloudflare, si lo hay).</p>
+    <form class="ajuste" data-clave="ANTHROPIC_API_KEY">
+        <label>Clave de Claude <span class="hint">(platform.claude.com → API Keys, empieza por sk-ant-api…)</span>
+            <input type="password" autocomplete="off" placeholder="sk-ant-api03-…"></label>
+        <p class="hint actual"></p>
+        <button>Comprobar y guardar</button>
+    </form>
+    <form class="ajuste" data-clave="YOUTUBE_API_KEY">
+        <label>Clave de YouTube Data API v3 <span class="hint">(Google Cloud Console → Credenciales)</span>
+            <input type="password" autocomplete="off" placeholder="AIza…"></label>
+        <p class="hint actual"></p>
+        <button>Comprobar y guardar</button>
+    </form>
+    <form class="ajuste" data-clave="CLAUDE_MODEL">
+        <label>Modelo de Claude <select id="cfgModelo"></select></label>
+        <p class="hint actual"></p>
+        <button>Guardar</button>
     </form>
 </section>
 </main>

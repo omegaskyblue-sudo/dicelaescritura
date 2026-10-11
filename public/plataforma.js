@@ -234,7 +234,7 @@ async function api(ruta, opciones) {
 api('/api/estado').then(async (e) => {
     if (e.db) await activarEquipo(e);
     $('estadoApi').textContent = `${e.usuario && e.usuario !== 'local' ? 'Sesión: ' + e.usuario + ' · ' : ''}Conexiones: YouTube ${e.youtube ? '✓' : '✗ (falta clave)'} · Claude ${e.claude ? '✓ ' + e.modelo : '✗ (falta clave)'}`;
-}).catch(() => { $('estadoApi').textContent = 'Modo sin conexión: arranca el servidor (npm start) para importar de YouTube y usar Claude.'; });
+}).catch(() => { $('estadoApi').textContent = 'Modo sin conexión: esta copia no tiene servidor (login, YouTube y Claude solo en la versión de Cloudflare).'; });
 
 $('btnYt').addEventListener('click', async () => {
     const q = $('ytCanal').value.trim();
@@ -270,11 +270,11 @@ async function activarEquipo(e) {
     MODO_DB = true;
     $('barraSesion').hidden = false;
     $('nombreSesion').textContent = e.usuario + (e.admin ? ' (admin)' : '');
-    if (e.admin) $('tabEquipo').hidden = false;
+    if (e.admin) { $('tabEquipo').hidden = false; $('tabConfig').hidden = false; }
     try {
         [pipeline, playbooks] = await Promise.all([api('/api/ideas'), api('/api/playbooks')]);
         pintarPipeline(); pintarLista();
-        if (e.admin) pintarUsuarios();
+        if (e.admin) { pintarUsuarios(); pintarConfig(); }
     } catch (err) { fallo(err); }
 }
 
@@ -319,3 +319,31 @@ $('listaUsuarios').addEventListener('click', async (ev) => {
         }
     } catch (err) { fallo(err); }
 });
+
+// ---------- Configuración (solo administradores) ----------
+const ORIGEN = { web: 'guardada desde la web', cloudflare: 'secreto de Cloudflare' };
+async function pintarConfig() {
+    let c;
+    try { c = await api('/api/configuracion'); } catch (err) { return fallo(err); }
+    $('cfgModelo').innerHTML = c.modelos.map((m) => `<option${m === c.ajustes.CLAUDE_MODEL.valor ? ' selected' : ''}>${m}</option>`).join('');
+    document.querySelectorAll('form.ajuste').forEach((f) => {
+        const a = c.ajustes[f.dataset.clave];
+        f.querySelector('.actual').textContent = !a.origen ? 'Sin configurar.'
+            : `Actual: ${a.valor} (${ORIGEN[a.origen]}${a.por ? ', por ' + a.por + ' el ' + new Date(a.en).toLocaleDateString('es') : ''}).`;
+    });
+}
+document.querySelectorAll('form.ajuste').forEach((f) => f.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const campo = f.querySelector('input, select'), boton = f.querySelector('button'), txt = boton.textContent;
+    if (!campo.value && !confirm('¿Borrar esta clave guardada?')) return;
+    boton.disabled = true; boton.textContent = 'Comprobando…';
+    try {
+        await api('/api/configuracion', json('PUT', { clave: f.dataset.clave, valor: campo.value }));
+        if (campo.tagName === 'INPUT') campo.value = '';
+        await pintarConfig();
+        const e = await api('/api/estado');
+        $('estadoApi').textContent = `Sesión: ${e.usuario} · Conexiones: YouTube ${e.youtube ? '✓' : '✗ (falta clave)'} · Claude ${e.claude ? '✓ ' + e.modelo : '✗ (falta clave)'}`;
+        alert('Guardado.');
+    } catch (err) { fallo(err); }
+    finally { boton.disabled = false; boton.textContent = txt; }
+}));
