@@ -14,9 +14,8 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "estudio-faceless",
-      // Sustituye por el id que imprime: npx wrangler d1 create estudio-faceless
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_name": "YAiContenido",
+      "database_id": "d9bbc79c-1696-4139-9c83-af09c6d80ac4",
       "migrations_dir": "migrations"
     }
   ],
