@@ -1,4 +1,4 @@
-// Estudio Faceless en Cloudflare Workers: sirve la web (solo con sesión iniciada),
+// YAiContenido en Cloudflare Workers: sirve la web (solo con sesión iniciada),
 // guarda usuarios y datos del equipo en D1 y hace de proxy seguro hacia la
 // YouTube Data API v3 y la Claude API. Las claves son secretos del Worker.
 import Anthropic from '@anthropic-ai/sdk';

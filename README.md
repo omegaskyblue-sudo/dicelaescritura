@@ -1,6 +1,6 @@
 # dicelaescritura
 
-## Estudio Faceless
+## YAiContenido
 
 Herramienta para canales de YouTube faceless: referentes y factor MRV → ideas → guion → métricas → playbook.
 Funciona en **Cloudflare Workers** con base de datos **D1**:
@@ -24,7 +24,7 @@ En GitHub Pages (`public/`) la web funciona en modo manual, sin login, YouTube n
 ### Publicar en Cloudflare (desde el panel, sin terminal)
 
 1. **Crear la base de datos**: dash.cloudflare.com → *Storage & Databases* → *D1 SQL Database* →
-   *Create* → nombre `YAiContenido` (ya creada).
+   *Create* → nombre `estudio-faceless` (ya creada; su ID está en `wrangler.jsonc`).
 2. **Crear las tablas**: en esa base de datos → *Console* → pega el contenido de
    `migrations/0001_inicial.sql` → *Execute*.
 3. **Poner el ID** en `wrangler.jsonc` (`database_id`) y subirlo al repositorio.
@@ -35,7 +35,7 @@ En GitHub Pages (`public/`) la web funciona en modo manual, sin login, YouTube n
    - `YOUTUBE_API_KEY`
    - `ACCESS_USERS`: usuarios iniciales `usuario:contraseña` separados por comas. **El primero es administrador.**
      Solo se usa mientras la base de datos no tiene usuarios; después se gestionan desde la web.
-6. Abre `https://estudio-faceless.<tu-subdominio>.workers.dev/plataforma.html` e inicia sesión.
+6. Abre `https://yaicontenido.<tu-subdominio>.workers.dev/plataforma.html` e inicia sesión.
    Cambia la contraseña nada más entrar.
 
 ### Publicar desde la terminal (alternativa)
@@ -43,7 +43,7 @@ En GitHub Pages (`public/`) la web funciona en modo manual, sin login, YouTube n
 ```bash
 npm install
 npx wrangler login
-npx wrangler d1 create YAiContenido          # copia el database_id a wrangler.jsonc
+npx wrangler d1 create estudio-faceless      # copia el database_id a wrangler.jsonc
 npm run db:migrar                            # crea las tablas en Cloudflare
 npx wrangler secret put ANTHROPIC_API_KEY
 npx wrangler secret put YOUTUBE_API_KEY

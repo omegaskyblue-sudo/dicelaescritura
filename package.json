@@ -1,11 +1,11 @@
 {
-  "name": "estudio-faceless",
+  "name": "yaicontenido",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
-    "db:migrar": "wrangler d1 migrations apply YAiContenido --remote",
-    "db:migrar:local": "wrangler d1 migrations apply YAiContenido --local",
+    "db:migrar": "wrangler d1 migrations apply estudio-faceless --remote",
+    "db:migrar:local": "wrangler d1 migrations apply estudio-faceless --local",
     "deploy": "wrangler deploy"
   },
   "dependencies": {

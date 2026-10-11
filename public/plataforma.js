@@ -1,4 +1,4 @@
-// Estudio Faceless — todo corre en el navegador, sin servidor.
+// YAiContenido — todo corre en el navegador, sin servidor.
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
@@ -217,7 +217,7 @@ $('btnPbCargar').addEventListener('click', () => {
 });
 $('btnPbExport').addEventListener('click', () => {
     const blob = new Blob([JSON.stringify({ playbooks, pipeline }, null, 2)], { type: 'application/json' });
-    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: 'estudio-faceless.json' });
+    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: 'yaicontenido.json' });
     a.click();
 });
 pintarLista();

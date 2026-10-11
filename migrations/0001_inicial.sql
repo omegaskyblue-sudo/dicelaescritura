@@ -1,4 +1,4 @@
--- Esquema inicial de Estudio Faceless (Cloudflare D1 / SQLite)
+-- Esquema inicial de YAiContenido (Cloudflare D1 / SQLite)
 CREATE TABLE IF NOT EXISTS usuarios (
     nombre     TEXT PRIMARY KEY,
     hash       TEXT NOT NULL,
