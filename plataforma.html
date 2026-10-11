@@ -11,6 +11,11 @@
     <h1>Estudio<span>Faceless</span></h1>
     <p>Del referente al vídeo publicado: MRV → idea → guion → métricas → playbook.</p>
     <a href="index.html">← Inicio</a>
+    <div id="barraSesion" class="sesion" hidden>
+        <span id="nombreSesion"></span>
+        <button id="btnMiPassword" class="copy">Cambiar contraseña</button>
+        <button id="btnSalir" class="copy">Salir</button>
+    </div>
 </header>
 
 <nav class="tabs" id="tabs">
@@ -19,6 +24,7 @@
     <button data-tab="guion">3. Guion</button>
     <button data-tab="metricas">4. Métricas</button>
     <button data-tab="playbook">5. Playbook</button>
+    <button data-tab="equipo" id="tabEquipo" hidden>Equipo</button>
 </nav>
 
 <main>
@@ -135,6 +141,22 @@
     <button id="btnPbExport">Exportar JSON</button>
     <select id="pbLista"></select>
     <button id="btnPbCargar">Cargar</button>
+</section>
+
+<!-- EQUIPO (solo administradores, con base de datos) -->
+<section id="equipo" class="panel">
+    <h2>Equipo</h2>
+    <p class="hint">Usuarios con acceso a la plataforma. Comparten el pipeline de ideas y los playbooks.</p>
+    <table><thead><tr><th>Usuario</th><th>Rol</th><th>Alta</th><th></th></tr></thead><tbody id="listaUsuarios"></tbody></table>
+    <h3>Añadir usuario</h3>
+    <form id="formUsuario">
+        <div class="grid2">
+            <label>Usuario <input name="nombre" required pattern="[A-Za-z0-9._\-]{2,40}" autocomplete="off"></label>
+            <label>Contraseña inicial <input name="password" type="password" required minlength="8" autocomplete="new-password"></label>
+        </div>
+        <label class="check"><input name="admin" type="checkbox"> Administrador (puede gestionar usuarios)</label>
+        <button>Añadir</button>
+    </form>
 </section>
 </main>
 

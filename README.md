@@ -26,15 +26,26 @@ Las claves solo viven en el servidor (`.env`, ignorado por git); el navegador nu
 ### Publicar en Render
 
 1. En https://dashboard.render.com → **New → Blueprint** → conecta este repositorio y elige la rama.
-   Render lee `render.yaml` y crea el servicio `estudio-faceless`.
+   Render lee `render.yaml` y crea la web `estudio-faceless` y la base de datos Postgres `estudio-faceless-db`
+   (la conexión entre ambas se configura sola).
 2. Te pedirá tres variables secretas:
    - `ANTHROPIC_API_KEY` y `YOUTUBE_API_KEY`
-   - `ACCESS_USERS`: los usuarios que pueden entrar, en formato `usuario:contraseña` separados por comas,
-     p. ej. `ana:Clave-larga-1,luis:Otra-clave-2`. Para añadir o quitar a alguien, edita esta variable
-     en Render (Environment) y el servicio se reinicia solo.
-     **No la dejes vacía**: sin ella, cualquiera con la URL gastaría tus claves.
-     (Alternativa simple: `ACCESS_PASSWORD`, una contraseña común con cualquier usuario.)
-3. Abre `https://<tu-servicio>.onrender.com/plataforma.html`.
+   - `ACCESS_USERS`: usuarios iniciales en formato `usuario:contraseña` separados por comas,
+     p. ej. `ana:Clave-larga-1`. **El primero será administrador.** Solo se usa la primera vez
+     (cuando la base de datos no tiene usuarios); después se gestionan desde la web.
+3. Abre `https://<tu-servicio>.onrender.com/plataforma.html` e inicia sesión.
 
-Plan gratuito: el servicio se duerme tras ~15 min sin uso y tarda ~1 min en despertar.
+### Usuarios y equipo
+
+- **Administradores**: pestaña **Equipo** para añadir usuarios, poner una contraseña nueva o eliminarlos.
+- **Todos**: botón *Cambiar contraseña* y *Salir* arriba. Las sesiones duran 30 días.
+- El pipeline de ideas y los playbooks se guardan en Postgres y los ve todo el equipo
+  (cada idea indica quién la creó; cada playbook, quién lo editó por última vez).
+- Contraseñas guardadas con scrypt (nunca en claro). Mínimo 8 caracteres.
+- Sin `DATABASE_URL` la plataforma funciona como antes: acceso con `ACCESS_USERS`/`ACCESS_PASSWORD`
+  (ventana del navegador) y datos guardados en cada navegador.
+
+**Plan gratuito de Render:** la web se duerme tras ~15 min sin uso (~1 min en despertar) y
+**la base de datos gratuita caduca a los 30 días** salvo que pases a un plan de pago
+(Basic, desde unos pocos $/mes). Exporta tus datos (botón *Exportar JSON*) si te quedas en el gratuito.
 En la clave de YouTube, restringe en Google Cloud su uso a "YouTube Data API v3".

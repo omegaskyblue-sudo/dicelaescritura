@@ -44,3 +44,10 @@ mark { background: #ffd54f66; color: inherit; }
 button.ia { background: #6f42c1; }
 button:disabled { opacity: .6; cursor: wait; }
 .ia-out { max-height: 480px; overflow: auto; }
+.sesion { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+.sesion button { margin: 0; padding: 5px 10px; }
+.login { max-width: 380px; margin: 40px auto; }
+.error { color: var(--bad); margin-top: 8px; min-height: 1.2em; }
+label.check { display: flex; gap: 8px; align-items: center; }
+label.check input { width: auto; margin: 0; }
+[hidden] { display: none !important; }

@@ -77,23 +77,41 @@ ${gan ? `\nMis ideas ganadoras (patrones que ya funcionan en mi canal):\n${gan}\
 Devuélveme 10 propuestas. Para cada una: título (máx. 60 caracteres), ángulo único en una frase, qué aporta que el referente no tiene, y concepto de miniatura (máx. 4 palabras de texto).`;
 });
 
-const pipeline = store.get('ef_pipeline', []);
+// Con base de datos (servidor con Postgres) el pipeline y los playbooks son compartidos por el equipo;
+// sin ella se guardan en este navegador.
+let MODO_DB = false;
+const json = (method, body) => ({ method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+
+let pipeline = store.get('ef_pipeline', []);
 const ESTADOS = ['Idea', 'Guion', 'Edición', 'Publicado', 'Descartada'];
 function pintarPipeline() {
-    $('pipeline').innerHTML = pipeline.map((p, i) => `<li><span>${esc(p.titulo)} <small class="hint">· ${esc(p.nicho)}</small></span>
+    $('pipeline').innerHTML = pipeline.map((p, i) => `<li><span>${esc(p.titulo)} <small class="hint">· ${esc(p.nicho)}${
+        p.creado_por ? ' · ' + esc(p.creado_por) : ''}</small></span>
         <select data-i="${i}">${ESTADOS.map((e) => `<option${e === p.estado ? ' selected' : ''}>${e}</option>`).join('')}</select>
         <button data-del="${i}" class="copy">✕</button></li>`).join('') || '<li class="hint">Vacío</li>';
 }
-$('pipeline').addEventListener('change', (e) => { pipeline[e.target.dataset.i].estado = e.target.value; store.set('ef_pipeline', pipeline); });
-$('pipeline').addEventListener('click', (e) => {
-    if (e.target.dataset.del == null) return;
-    pipeline.splice(+e.target.dataset.del, 1); store.set('ef_pipeline', pipeline); pintarPipeline();
+const fallo = (e) => alert(e.message);
+$('pipeline').addEventListener('change', async (e) => {
+    const p = pipeline[e.target.dataset.i];
+    p.estado = e.target.value;
+    if (MODO_DB) await api(`/api/ideas/${p.id}`, json('PATCH', { estado: p.estado })).catch(fallo);
+    else store.set('ef_pipeline', pipeline);
 });
-$('btnGuardarIdea').addEventListener('click', () => {
+$('pipeline').addEventListener('click', async (e) => {
+    if (e.target.dataset.del == null) return;
+    const [p] = pipeline.splice(+e.target.dataset.del, 1);
+    if (MODO_DB) await api(`/api/ideas/${p.id}`, { method: 'DELETE' }).catch(fallo);
+    else store.set('ef_pipeline', pipeline);
+    pintarPipeline();
+});
+$('btnGuardarIdea').addEventListener('click', async () => {
     const titulo = prompt('Título de la idea elegida:', $('ideaRef').value);
     if (!titulo) return;
-    pipeline.push({ titulo, nicho: $('ideaNicho').value, estado: 'Idea', fecha: new Date().toISOString().slice(0, 10) });
-    store.set('ef_pipeline', pipeline); pintarPipeline();
+    const idea = { titulo, nicho: $('ideaNicho').value, estado: 'Idea', fecha: new Date().toISOString().slice(0, 10) };
+    if (MODO_DB) {
+        try { pipeline.unshift(await api('/api/ideas', json('POST', idea))); } catch (e) { return fallo(e); }
+    } else { pipeline.push(idea); store.set('ef_pipeline', pipeline); }
+    pintarPipeline();
 });
 pintarPipeline();
 
@@ -176,15 +194,20 @@ $('btnDiag').addEventListener('click', () => {
 });
 
 // ---------- 5. Playbook ----------
-const playbooks = store.get('ef_playbooks', {});
+let playbooks = store.get('ef_playbooks', {});
 const pintarLista = () => { $('pbLista').innerHTML = Object.keys(playbooks).map((k) => `<option>${esc(k)}</option>`).join(''); };
 const leerPb = () => Object.fromEntries([...document.querySelectorAll('[data-pb]')].map((el) => [el.dataset.pb, el.value]));
 
-$('btnPbGuardar').addEventListener('click', () => {
+$('btnPbGuardar').addEventListener('click', async () => {
     const nombre = $('pbCanal').value.trim();
     if (!nombre) { alert('Ponle nombre al canal'); return; }
-    playbooks[nombre] = { ...leerPb(), actualizado: new Date().toISOString() };
-    store.set('ef_playbooks', playbooks); pintarLista();
+    const datos = leerPb();
+    if (MODO_DB) {
+        try { await api('/api/playbooks/' + encodeURIComponent(nombre), json('PUT', datos)); } catch (e) { return fallo(e); }
+    }
+    playbooks[nombre] = { ...datos, actualizado: new Date().toISOString() };
+    if (!MODO_DB) store.set('ef_playbooks', playbooks);
+    pintarLista();
 });
 $('btnPbCargar').addEventListener('click', () => {
     const pb = playbooks[$('pbLista').value];
@@ -208,7 +231,8 @@ async function api(ruta, opciones) {
     return data;
 }
 
-api('/api/estado').then((e) => {
+api('/api/estado').then(async (e) => {
+    if (e.db) await activarEquipo(e);
     $('estadoApi').textContent = `${e.usuario && e.usuario !== 'local' ? 'Sesión: ' + e.usuario + ' · ' : ''}Conexiones: YouTube ${e.youtube ? '✓' : '✗ (falta clave)'} · Claude ${e.claude ? '✓ ' + e.modelo : '✗ (falta clave)'}`;
 }).catch(() => { $('estadoApi').textContent = 'Modo sin conexión: arranca el servidor (npm start) para importar de YouTube y usar Claude.'; });
 
@@ -240,3 +264,58 @@ document.querySelectorAll('button.ia').forEach((b) => b.addEventListener('click'
 }));
 
 $('btnAlRevisor').addEventListener('click', () => { $('gTexto').value = $('iaGuion').textContent; $('btnRevisar').click(); });
+
+// ---------- Equipo (solo con base de datos) ----------
+async function activarEquipo(e) {
+    MODO_DB = true;
+    $('barraSesion').hidden = false;
+    $('nombreSesion').textContent = e.usuario + (e.admin ? ' (admin)' : '');
+    if (e.admin) $('tabEquipo').hidden = false;
+    try {
+        [pipeline, playbooks] = await Promise.all([api('/api/ideas'), api('/api/playbooks')]);
+        pintarPipeline(); pintarLista();
+        if (e.admin) pintarUsuarios();
+    } catch (err) { fallo(err); }
+}
+
+$('btnSalir').addEventListener('click', async () => {
+    await api('/api/logout', { method: 'POST' }).catch(() => {});
+    location.href = '/login.html';
+});
+$('btnMiPassword').addEventListener('click', async () => {
+    const password = prompt('Nueva contraseña (mínimo 8 caracteres):');
+    if (!password) return;
+    try { await api('/api/password', json('POST', { password })); alert('Contraseña cambiada. Se han cerrado tus otras sesiones.'); }
+    catch (err) { fallo(err); }
+});
+
+async function pintarUsuarios() {
+    const lista = await api('/api/usuarios').catch((err) => { fallo(err); return []; });
+    $('listaUsuarios').innerHTML = lista.map((u) => `<tr><td>${esc(u.nombre)}</td><td>${u.admin ? 'Admin' : 'Miembro'}</td>
+        <td>${new Date(u.creado_en).toLocaleDateString('es')}</td>
+        <td><button class="copy" data-reset="${esc(u.nombre)}">Nueva contraseña</button>
+        <button class="copy" data-borrar="${esc(u.nombre)}">Eliminar</button></td></tr>`).join('');
+}
+$('formUsuario').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const f = ev.target;
+    try {
+        await api('/api/usuarios', json('POST', { nombre: f.nombre.value, password: f.password.value, admin: f.admin.checked }));
+        f.reset(); pintarUsuarios();
+    } catch (err) { fallo(err); }
+});
+$('listaUsuarios').addEventListener('click', async (ev) => {
+    const { reset, borrar } = ev.target.dataset;
+    try {
+        if (reset) {
+            const password = prompt(`Nueva contraseña para ${reset} (mínimo 8 caracteres):`);
+            if (!password) return;
+            await api(`/api/usuarios/${encodeURIComponent(reset)}/password`, json('POST', { password }));
+            alert('Contraseña cambiada. Sus sesiones abiertas se han cerrado.');
+        }
+        if (borrar && confirm(`¿Eliminar a ${borrar}? Perderá el acceso.`)) {
+            await api(`/api/usuarios/${encodeURIComponent(borrar)}`, { method: 'DELETE' });
+            pintarUsuarios();
+        }
+    } catch (err) { fallo(err); }
+});

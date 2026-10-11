@@ -1,3 +1,8 @@
+databases:
+  - name: estudio-faceless-db
+    plan: free
+    databaseName: estudio_faceless
+
 services:
   - type: web
     name: estudio-faceless
@@ -11,9 +16,14 @@ services:
         value: "22"
       - key: CLAUDE_MODEL
         value: claude-opus-5-5
+      - key: DATABASE_URL
+        fromDatabase:
+          name: estudio-faceless-db
+          property: connectionString
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: YOUTUBE_API_KEY
         sync: false
+      # Solo se usa la primera vez, para crear los usuarios iniciales (el primero será admin).
       - key: ACCESS_USERS
         sync: false

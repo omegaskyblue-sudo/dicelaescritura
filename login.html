@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Estudio Faceless · Acceso</title>
+    <link rel="stylesheet" href="plataforma.css">
+</head>
+<body>
+<header class="top">
+    <h1>Estudio<span>Faceless</span></h1>
+</header>
+<main>
+    <form id="form" class="panel active login">
+        <h2>Iniciar sesión</h2>
+        <label>Usuario <input name="nombre" autocomplete="username" required autofocus></label>
+        <label>Contraseña <input name="password" type="password" autocomplete="current-password" required></label>
+        <button>Entrar</button>
+        <p id="error" class="error" role="alert"></p>
+    </form>
+</main>
+<script>
+document.getElementById('form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const datos = Object.fromEntries(new FormData(e.target));
+    const err = document.getElementById('error');
+    err.textContent = '';
+    try {
+        const res = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(datos) });
+        if (res.ok) { location.href = '/plataforma.html'; return; }
+        err.textContent = (await res.json().catch(() => ({}))).error || 'No se pudo iniciar sesión';
+    } catch { err.textContent = 'Servidor no disponible'; }
+});
+</script>
+</body>
+</html>

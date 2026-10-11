@@ -6,26 +6,30 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import Anthropic from '@anthropic-ai/sdk';
+import * as db from './db.mjs';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
 const MODEL = process.env.CLAUDE_MODEL || 'claude-opus-5-5';
 const YT = 'https://www.googleapis.com/youtube/v3';
-const PUBLICOS = new Set(['index.html', 'style.css', 'plataforma.html', 'plataforma.css', 'plataforma.js']);
+const PUBLICOS = new Set(['index.html', 'style.css', 'plataforma.html', 'plataforma.css', 'plataforma.js', 'login.html']);
 const TIPOS = { '.html': 'text/html; charset=utf-8', '.css': 'text/css', '.js': 'text/javascript' };
 
-// Control de acceso (HTTP Basic). Imprescindible en un despliegue público.
+// Control de acceso. Con DATABASE_URL: inicio de sesión con usuarios en Postgres
+// (ACCESS_USERS solo crea los usuarios iniciales). Sin base de datos: HTTP Basic.
 // ACCESS_USERS="ana:clave1,luis:clave2" → cada persona con su usuario y contraseña.
 // ACCESS_PASSWORD="x" → una contraseña común, con cualquier usuario (modo simple).
 const hash = (s) => createHash('sha256').update(s).digest();
-const USUARIOS = new Map((process.env.ACCESS_USERS || '').split(',').map((par) => par.trim()).filter(Boolean)
-    .map((par) => { const i = par.indexOf(':'); return [par.slice(0, i).trim().toLowerCase(), hash(par.slice(i + 1))]; })
-    .filter(([u]) => u));
+const LISTA_USUARIOS = (process.env.ACCESS_USERS || '').split(',').map((par) => par.trim()).filter(Boolean)
+    .map((par) => { const i = par.indexOf(':'); return [par.slice(0, i).trim().toLowerCase(), par.slice(i + 1)]; })
+    .filter(([u, p]) => u && p);
+const USUARIOS = new Map(LISTA_USUARIOS.map(([u, p]) => [u, hash(p)]));
 const CLAVE = process.env.ACCESS_PASSWORD ? hash(process.env.ACCESS_PASSWORD) : null;
 const PROTEGIDO = USUARIOS.size > 0 || !!CLAVE;
+const CON_DB = !!db.pool;
 
 // Devuelve el nombre de usuario si las credenciales son válidas, o null.
-function autenticar(req) {
+function autenticarBasic(req) {
     if (!PROTEGIDO) return 'local';
     const m = (req.headers.authorization || '').match(/^Basic (.+)$/);
     if (!m) return null;
@@ -143,40 +147,127 @@ const enviar = (res, status, data) => {
     res.end(JSON.stringify(data));
 };
 
-http.createServer(async (req, res) => {
-    const url = new URL(req.url, 'http://localhost');
-    if (url.pathname === '/healthz') { res.writeHead(200); return res.end('ok'); }
-    const usuario = autenticar(req);
-    if (!usuario) {
-        res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="Estudio Faceless", charset="UTF-8"' });
-        return res.end('Acceso restringido');
+const COOKIE = 'ef_sesion';
+const leerCookie = (req) => (req.headers.cookie || '').split(';').map((c) => c.trim().split('='))
+    .find(([k]) => k === COOKIE)?.[1];
+function ponerCookie(req, res, valor, maxAge) {
+    const segura = req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '';
+    res.setHeader('Set-Cookie', `${COOKIE}=${valor}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAge}${segura}`);
+}
+
+// Devuelve { nombre, admin } o null.
+async function autenticar(req) {
+    if (CON_DB) return db.usuarioDeSesion(leerCookie(req));
+    const nombre = autenticarBasic(req);
+    return nombre && { nombre, admin: false };
+}
+
+const soloAdmin = (u) => { if (!u.admin) throw new HttpError(403, 'Solo para administradores'); };
+const comprobar = (err) => { if (err) throw new HttpError(400, err); };
+
+// Rutas de la API que requieren sesión. Devuelve true si atendió la petición.
+async function rutasApi(req, res, url, u) {
+    const p = url.pathname, m = req.method;
+    let id;
+    if (p === '/api/estado') {
+        return enviar(res, 200, { usuario: u.nombre, admin: u.admin, db: CON_DB,
+            youtube: !!process.env.YOUTUBE_API_KEY, claude: !!anthropic, modelo: MODEL });
     }
+    if (p === '/api/youtube/canal' && m === 'GET') return enviar(res, 200, await canal(url.searchParams.get('q') || ''));
+    if (p === '/api/claude' && m === 'POST') return enviar(res, 200, await claude((await leerJson(req)).prompt));
+
+    if (!CON_DB) throw new HttpError(404, 'No encontrado');
+    if (p === '/api/logout' && m === 'POST') {
+        await db.logout(leerCookie(req)); ponerCookie(req, res, '', 0); return enviar(res, 200, { ok: true });
+    }
+    if (p === '/api/password' && m === 'POST') {
+        comprobar(await db.cambiarPassword(u.nombre, (await leerJson(req)).password, leerCookie(req)));
+        return enviar(res, 200, { ok: true });
+    }
+    if (p === '/api/ideas' && m === 'GET') return enviar(res, 200, await db.listarIdeas());
+    if (p === '/api/ideas' && m === 'POST') {
+        const b = await leerJson(req);
+        if (!b.titulo?.trim()) throw new HttpError(400, 'Falta el título');
+        return enviar(res, 201, await db.crearIdea(b, u.nombre));
+    }
+    if ((id = p.match(/^\/api\/ideas\/(\d+)$/)?.[1])) {
+        if (m === 'PATCH') { await db.cambiarEstadoIdea(+id, String((await leerJson(req)).estado).slice(0, 30)); return enviar(res, 200, { ok: true }); }
+        if (m === 'DELETE') { await db.borrarIdea(+id); return enviar(res, 200, { ok: true }); }
+    }
+    if (p === '/api/playbooks' && m === 'GET') return enviar(res, 200, await db.listarPlaybooks());
+    if ((id = p.match(/^\/api\/playbooks\/(.+)$/)?.[1]) && m === 'PUT') {
+        await db.guardarPlaybook(decodeURIComponent(id), await leerJson(req), u.nombre); return enviar(res, 200, { ok: true });
+    }
+    if (p === '/api/usuarios') {
+        soloAdmin(u);
+        if (m === 'GET') return enviar(res, 200, await db.listarUsuarios());
+        if (m === 'POST') {
+            const b = await leerJson(req);
+            comprobar(await db.crearUsuario(b.nombre, b.password, b.admin)); return enviar(res, 201, { ok: true });
+        }
+    }
+    if ((id = p.match(/^\/api\/usuarios\/([^/]+)(\/password)?$/))) {
+        soloAdmin(u);
+        const nombre = decodeURIComponent(id[1]);
+        if (id[2] && m === 'POST') { comprobar(await db.cambiarPassword(nombre, (await leerJson(req)).password)); return enviar(res, 200, { ok: true }); }
+        if (!id[2] && m === 'DELETE') { comprobar(await db.borrarUsuario(nombre, u.nombre)); return enviar(res, 200, { ok: true }); }
+    }
+    throw new HttpError(404, 'No encontrado');
+}
+
+const servidor = http.createServer(async (req, res) => {
+    const url = new URL(req.url, 'http://localhost');
     try {
-        if (url.pathname === '/api/estado') {
-            return enviar(res, 200, { usuario, youtube: !!process.env.YOUTUBE_API_KEY, claude: !!anthropic, modelo: MODEL });
-        }
-        if (url.pathname === '/api/youtube/canal' && req.method === 'GET') {
-            return enviar(res, 200, await canal(url.searchParams.get('q') || ''));
-        }
-        if (url.pathname === '/api/claude' && req.method === 'POST') {
-            const { prompt } = await leerJson(req);
-            return enviar(res, 200, await claude(prompt));
+        if (url.pathname === '/healthz') { res.writeHead(200); return res.end('ok'); }
+        if (CON_DB && url.pathname === '/api/login' && req.method === 'POST') {
+            const { nombre, password } = await leerJson(req);
+            const s = await db.login(nombre, password);
+            if (!s) throw new HttpError(401, 'Usuario o contraseña incorrectos');
+            ponerCookie(req, res, s.token, s.maxAge);
+            return enviar(res, 200, { ok: true });
         }
         const archivo = url.pathname === '/' ? 'index.html' : url.pathname.slice(1);
-        if (!PUBLICOS.has(archivo)) throw new HttpError(404, 'No encontrado');
+        const publico = CON_DB && ['login.html', 'plataforma.css', 'style.css'].includes(archivo);
+
+        const u = publico ? null : await autenticar(req);
+        if (!publico && !u) {
+            if (!CON_DB) {
+                res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="Estudio Faceless", charset="UTF-8"' });
+                return res.end('Acceso restringido');
+            }
+            if (url.pathname.startsWith('/api/')) throw new HttpError(401, 'Inicia sesión');
+            res.writeHead(302, { Location: '/login.html' });
+            return res.end();
+        }
+        if (url.pathname.startsWith('/api/')) return await rutasApi(req, res, url, u);
+
+        if (!PUBLICOS.has(archivo) || (archivo === 'login.html' && !CON_DB)) throw new HttpError(404, 'No encontrado');
         res.writeHead(200, { 'Content-Type': TIPOS[path.extname(archivo)] });
         res.end(await readFile(path.join(ROOT, archivo)));
     } catch (e) {
         let status = e.status || 500;
-        let msg = e.message;
+        let msg = status === 500 ? 'Error interno' : e.message;
         if (e instanceof Anthropic.RateLimitError) { status = 429; msg = 'Límite de uso de Claude alcanzado, prueba en un minuto.'; }
         else if (e instanceof Anthropic.AuthenticationError) { status = 503; msg = 'ANTHROPIC_API_KEY no es válida.'; }
         else if (e instanceof Anthropic.APIError) { status = 502; msg = `Claude: ${e.message}`; }
         if (!(e instanceof HttpError)) console.error(e);
         enviar(res, status, { error: msg });
     }
-}).listen(PORT, () => {
-    console.log(`Estudio Faceless en http://localhost:${PORT}/plataforma.html`);
-    if (!PROTEGIDO) console.warn('Aviso: ni ACCESS_USERS ni ACCESS_PASSWORD definidas; la web es accesible sin contraseña.');
-    else console.log(`Acceso protegido: ${USUARIOS.size} usuario(s)${CLAVE ? ' + contraseña común' : ''}.`);
 });
+
+async function arrancar() {
+    if (CON_DB) {
+        await db.migrar();
+        const n = await db.sembrarUsuarios(LISTA_USUARIOS);
+        if (n) console.log(`Creados ${n} usuario(s) iniciales; administrador: ${LISTA_USUARIOS[0][0]}.`);
+        const hay = (await db.listarUsuarios()).length;
+        if (!hay) console.warn('Aviso: no hay usuarios. Define ACCESS_USERS para crear el primer administrador.');
+        console.log('Base de datos lista: inicio de sesión con usuarios de Postgres.');
+    } else if (!PROTEGIDO) {
+        console.warn('Aviso: sin base de datos ni ACCESS_USERS/ACCESS_PASSWORD; la web es accesible sin contraseña.');
+    } else {
+        console.log(`Acceso protegido (HTTP Basic): ${USUARIOS.size} usuario(s)${CLAVE ? ' + contraseña común' : ''}.`);
+    }
+    servidor.listen(PORT, () => console.log(`Estudio Faceless en http://localhost:${PORT}/plataforma.html`));
+}
+arrancar().catch((e) => { console.error('No se pudo arrancar:', e); process.exit(1); });
