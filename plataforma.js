@@ -209,7 +209,7 @@ async function api(ruta, opciones) {
 }
 
 api('/api/estado').then((e) => {
-    $('estadoApi').textContent = `Conexiones: YouTube ${e.youtube ? '✓' : '✗ (falta clave)'} · Claude ${e.claude ? '✓ ' + e.modelo : '✗ (falta clave)'}`;
+    $('estadoApi').textContent = `${e.usuario && e.usuario !== 'local' ? 'Sesión: ' + e.usuario + ' · ' : ''}Conexiones: YouTube ${e.youtube ? '✓' : '✗ (falta clave)'} · Claude ${e.claude ? '✓ ' + e.modelo : '✗ (falta clave)'}`;
 }).catch(() => { $('estadoApi').textContent = 'Modo sin conexión: arranca el servidor (npm start) para importar de YouTube y usar Claude.'; });
 
 $('btnYt').addEventListener('click', async () => {

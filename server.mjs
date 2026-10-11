@@ -14,16 +14,29 @@ const YT = 'https://www.googleapis.com/youtube/v3';
 const PUBLICOS = new Set(['index.html', 'style.css', 'plataforma.html', 'plataforma.css', 'plataforma.js']);
 const TIPOS = { '.html': 'text/html; charset=utf-8', '.css': 'text/css', '.js': 'text/javascript' };
 
-// Si ACCESS_PASSWORD está definida, toda la web exige usuario/contraseña (HTTP Basic).
-// Imprescindible en un despliegue público: sin ella cualquiera gastaría tus claves.
+// Control de acceso (HTTP Basic). Imprescindible en un despliegue público.
+// ACCESS_USERS="ana:clave1,luis:clave2" → cada persona con su usuario y contraseña.
+// ACCESS_PASSWORD="x" → una contraseña común, con cualquier usuario (modo simple).
 const hash = (s) => createHash('sha256').update(s).digest();
+const USUARIOS = new Map((process.env.ACCESS_USERS || '').split(',').map((par) => par.trim()).filter(Boolean)
+    .map((par) => { const i = par.indexOf(':'); return [par.slice(0, i).trim().toLowerCase(), hash(par.slice(i + 1))]; })
+    .filter(([u]) => u));
 const CLAVE = process.env.ACCESS_PASSWORD ? hash(process.env.ACCESS_PASSWORD) : null;
-function autorizado(req) {
-    if (!CLAVE) return true;
+const PROTEGIDO = USUARIOS.size > 0 || !!CLAVE;
+
+// Devuelve el nombre de usuario si las credenciales son válidas, o null.
+function autenticar(req) {
+    if (!PROTEGIDO) return 'local';
     const m = (req.headers.authorization || '').match(/^Basic (.+)$/);
-    if (!m) return false;
-    const pass = Buffer.from(m[1], 'base64').toString().split(':').slice(1).join(':');
-    return timingSafeEqual(hash(pass), CLAVE);
+    if (!m) return null;
+    const txt = Buffer.from(m[1], 'base64').toString();
+    const i = txt.indexOf(':');
+    if (i < 0) return null;
+    const usuario = txt.slice(0, i).trim().toLowerCase(), pass = hash(txt.slice(i + 1));
+    const esperado = USUARIOS.get(usuario);
+    if (esperado && timingSafeEqual(pass, esperado)) return usuario;
+    if (CLAVE && timingSafeEqual(pass, CLAVE)) return usuario || 'invitado';
+    return null;
 }
 
 const anthropic = process.env.ANTHROPIC_API_KEY ? new Anthropic() : null;
@@ -133,13 +146,14 @@ const enviar = (res, status, data) => {
 http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
     if (url.pathname === '/healthz') { res.writeHead(200); return res.end('ok'); }
-    if (!autorizado(req)) {
+    const usuario = autenticar(req);
+    if (!usuario) {
         res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="Estudio Faceless", charset="UTF-8"' });
         return res.end('Acceso restringido');
     }
     try {
         if (url.pathname === '/api/estado') {
-            return enviar(res, 200, { youtube: !!process.env.YOUTUBE_API_KEY, claude: !!anthropic, modelo: MODEL });
+            return enviar(res, 200, { usuario, youtube: !!process.env.YOUTUBE_API_KEY, claude: !!anthropic, modelo: MODEL });
         }
         if (url.pathname === '/api/youtube/canal' && req.method === 'GET') {
             return enviar(res, 200, await canal(url.searchParams.get('q') || ''));
@@ -163,5 +177,6 @@ http.createServer(async (req, res) => {
     }
 }).listen(PORT, () => {
     console.log(`Estudio Faceless en http://localhost:${PORT}/plataforma.html`);
-    if (!CLAVE) console.warn('Aviso: ACCESS_PASSWORD no definida; la web es accesible sin contraseña.');
+    if (!PROTEGIDO) console.warn('Aviso: ni ACCESS_USERS ni ACCESS_PASSWORD definidas; la web es accesible sin contraseña.');
+    else console.log(`Acceso protegido: ${USUARIOS.size} usuario(s)${CLAVE ? ' + contraseña común' : ''}.`);
 });

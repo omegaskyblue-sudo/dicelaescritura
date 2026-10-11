@@ -15,5 +15,5 @@ services:
         sync: false
       - key: YOUTUBE_API_KEY
         sync: false
-      - key: ACCESS_PASSWORD
+      - key: ACCESS_USERS
         sync: false

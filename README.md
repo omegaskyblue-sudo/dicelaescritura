@@ -29,8 +29,11 @@ Las claves solo viven en el servidor (`.env`, ignorado por git); el navegador nu
    Render lee `render.yaml` y crea el servicio `estudio-faceless`.
 2. Te pedirá tres variables secretas:
    - `ANTHROPIC_API_KEY` y `YOUTUBE_API_KEY`
-   - `ACCESS_PASSWORD`: contraseña para entrar a la web (cualquier usuario + esta contraseña).
+   - `ACCESS_USERS`: los usuarios que pueden entrar, en formato `usuario:contraseña` separados por comas,
+     p. ej. `ana:Clave-larga-1,luis:Otra-clave-2`. Para añadir o quitar a alguien, edita esta variable
+     en Render (Environment) y el servicio se reinicia solo.
      **No la dejes vacía**: sin ella, cualquiera con la URL gastaría tus claves.
+     (Alternativa simple: `ACCESS_PASSWORD`, una contraseña común con cualquier usuario.)
 3. Abre `https://<tu-servicio>.onrender.com/plataforma.html`.
 
 Plan gratuito: el servicio se duerme tras ~15 min sin uso y tarda ~1 min en despertar.
