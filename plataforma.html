@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Estudio Faceless</title>
+    <link rel="stylesheet" href="plataforma.css">
+</head>
+<body>
+<header class="top">
+    <h1>Estudio<span>Faceless</span></h1>
+    <p>Del referente al vídeo publicado: MRV → idea → guion → métricas → playbook.</p>
+    <a href="index.html">← Inicio</a>
+</header>
+
+<nav class="tabs" id="tabs">
+    <button data-tab="referentes" class="active">1. Referentes y MRV</button>
+    <button data-tab="ideas">2. Ideas</button>
+    <button data-tab="guion">3. Guion</button>
+    <button data-tab="metricas">4. Métricas</button>
+    <button data-tab="playbook">5. Playbook</button>
+</nav>
+
+<main>
+<!-- 1. REFERENTES -->
+<section id="referentes" class="panel active">
+    <h2>Detector de outliers + factor MRV</h2>
+    <p class="hint">Pega los vídeos del canal referente, uno por línea: <code>título | visitas | días desde publicación | duración (min)</code>. Un outlier es un vídeo que supera claramente la mediana del canal.</p>
+    <div class="grid2">
+        <label>Canal referente <input id="refCanal" placeholder="Ej: ruinas olvidadas"></label>
+        <label>Días desde el primer vídeo del canal <input id="refEdad" type="number" placeholder="90"></label>
+    </div>
+    <textarea id="refVideos" rows="8" placeholder="What did ancient humans do before jobs existed? | 2700000 | 30 | 8&#10;Otro vídeo | 45000 | 60 | 9"></textarea>
+    <button id="btnOutliers">Analizar</button>
+    <div id="outOutliers"></div>
+</section>
+
+<!-- 2. IDEAS -->
+<section id="ideas" class="panel">
+    <h2>Generador de ideas (copiar y mejorar)</h2>
+    <p class="hint">Elige la palanca de mejora. La plataforma construye el prompt para Claude; tú aportas el ángulo propio.</p>
+    <label>Título/idea referente <input id="ideaRef" placeholder="What did ancient humans do before jobs existed?"></label>
+    <div class="grid2">
+        <label>Tu nicho / subnicho <input id="ideaNicho" placeholder="Psicología"></label>
+        <label>Mercado destino <input id="ideaMercado" value="hispanohablante"></label>
+    </div>
+    <fieldset>
+        <legend>Palancas</legend>
+        <label><input type="checkbox" value="duracion" checked> Duración (llevarlo a 20–40 min)</label>
+        <label><input type="checkbox" value="formato"> Cambio de formato visual (stickman → documental/stock…)</label>
+        <label><input type="checkbox" value="mercado" checked> Cambio de mercado (EN → ES, validar demanda en ambos)</label>
+        <label><input type="checkbox" value="subnicho"> Cambio de subnicho</label>
+        <label><input type="checkbox" value="inverso"> Título inverso (reordenar palabras clave)</label>
+        <label><input type="checkbox" value="patron"> Patrón ganador + tendencia actual</label>
+    </fieldset>
+    <label>Ideas ganadoras de tu canal (opcional, una por línea)
+        <textarea id="ideaGanadoras" rows="3"></textarea></label>
+    <button id="btnIdea">Generar prompt</button>
+    <pre id="outIdea" class="out"></pre>
+    <button class="copy" data-copy="outIdea">Copiar</button>
+    <button id="btnGuardarIdea">Guardar idea en el pipeline</button>
+    <h3>Pipeline de ideas</h3>
+    <ul id="pipeline"></ul>
+</section>
+
+<!-- 3. GUION -->
+<section id="guion" class="panel">
+    <h2>Guion: prompt + revisión de estilo</h2>
+    <div class="grid2">
+        <label>Tema <input id="gTema"></label>
+        <label>Duración objetivo (min) <input id="gMin" type="number" value="25"></label>
+    </div>
+    <label>Tipo de intro
+        <select id="gIntro">
+            <option>Pregunta intrigante + promesa</option>
+            <option>Escena en medias res</option>
+            <option>Dato sorprendente</option>
+            <option>Contraste antes/ahora</option>
+        </select></label>
+    <button id="btnGuionPrompt">Generar prompt de guion</button>
+    <pre id="outGuionPrompt" class="out"></pre>
+    <button class="copy" data-copy="outGuionPrompt">Copiar</button>
+
+    <h3>Revisión del guion</h3>
+    <p class="hint">Pega el guion. Se marcan muletillas típicas de texto generado (antítesis binaria, cadena de negaciones, ritmo de metrónomo) para que lo reescribas con voz propia y aportes valor original.</p>
+    <textarea id="gTexto" rows="10"></textarea>
+    <button id="btnRevisar">Revisar</button>
+    <div id="outRevision"></div>
+</section>
+
+<!-- 4. METRICAS -->
+<section id="metricas" class="panel">
+    <h2>Diagnóstico de vídeo: ¿sigo o lo dejo?</h2>
+    <div class="grid3">
+        <label>Impresiones <input id="mImp" type="number"></label>
+        <label>CTR del vídeo (%) <input id="mCtr" type="number" step="0.1"></label>
+        <label>CTR medio del canal (%) <input id="mCtrCanal" type="number" step="0.1" value="6.5"></label>
+        <label>Duración vídeo (min) <input id="mDur" type="number"></label>
+        <label>Duración media vista (min) <input id="mAvd" type="number" step="0.1"></label>
+        <label>Retención a los 30 s (%) <input id="mR30" type="number"></label>
+    </div>
+    <button id="btnDiag">Diagnosticar</button>
+    <div id="outDiag"></div>
+</section>
+
+<!-- 5. PLAYBOOK -->
+<section id="playbook" class="panel">
+    <h2>Playbook del canal (para delegar al equipo)</h2>
+    <p class="hint">Todo en un sitio: un editor nuevo debe poder producir solo con esto. Se guarda en este navegador; exporta el JSON para compartirlo.</p>
+    <label>Canal <input id="pbCanal"></label>
+    <div class="grid2">
+        <label>Nicho / subnicho <input data-pb="nicho"></label>
+        <label>Tipo <select data-pb="tipo"><option>Evergreen</option><option>Tendencia</option></select></label>
+        <label>Formato visual <input data-pb="formato"></label>
+        <label>Voz (herramienta + voz) <input data-pb="voz"></label>
+    </div>
+    <label>Prompt de guion vigente <textarea data-pb="prompt" rows="4"></textarea></label>
+    <label>Cómo hacer la intro <textarea data-pb="intro" rows="3"></textarea></label>
+    <label>Estilo de miniaturas <textarea data-pb="miniaturas" rows="2"></textarea></label>
+    <label>Canales referentes <textarea data-pb="referentes" rows="2"></textarea></label>
+    <label>Ideas ganadoras (patrones 20/80) <textarea data-pb="ganadoras" rows="3"></textarea></label>
+    <label>Tutoriales (enlaces Loom por tarea) <textarea data-pb="tutoriales" rows="2"></textarea></label>
+    <label>Ingresos / gastos del mes <input data-pb="balance" placeholder="Ingresos 0 € · Gastos 0 €"></label>
+    <button id="btnPbGuardar">Guardar</button>
+    <button id="btnPbExport">Exportar JSON</button>
+    <select id="pbLista"></select>
+    <button id="btnPbCargar">Cargar</button>
+</section>
+</main>
+
+<script src="plataforma.js"></script>
+</body>
+</html>
