@@ -150,7 +150,8 @@ const enviar = (res, status, data) => {
 // Límite de intentos de login: 10 fallos por IP cada 15 minutos.
 const FALLOS = new Map();
 const VENTANA = 15 * 60 * 1000, MAX_FALLOS = 10;
-const ipDe = (req) => (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
+// El proxy de Render añade la IP real al final de X-Forwarded-For (los valores anteriores los controla el cliente).
+const ipDe = (req) => (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',').pop().trim();
 function bloqueado(ip) {
     const f = FALLOS.get(ip);
     if (f && Date.now() - f.desde > VENTANA) { FALLOS.delete(ip); return false; }
