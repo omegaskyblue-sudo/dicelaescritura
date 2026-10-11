@@ -3,6 +3,8 @@
   "name": "yaicontenido",
   "main": "src/worker.js",
   "compatibility_date": "2026-09-01",
+  // Mantiene activa la dirección https://yaicontenido.<cuenta>.workers.dev en cada despliegue
+  "workers_dev": true,
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
