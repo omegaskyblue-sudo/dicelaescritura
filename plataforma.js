@@ -198,3 +198,45 @@ $('btnPbExport').addEventListener('click', () => {
     a.click();
 });
 pintarLista();
+
+// ---------- Conexión con el servidor (YouTube + Claude) ----------
+async function api(ruta, opciones) {
+    let res;
+    try { res = await fetch(ruta, opciones); } catch { throw new Error('Servidor no disponible. Arranca con "npm start".'); }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || (res.status === 404 ? 'Servidor no disponible. Arranca con "npm start".' : `Error ${res.status}`));
+    return data;
+}
+
+api('/api/estado').then((e) => {
+    $('estadoApi').textContent = `Conexiones: YouTube ${e.youtube ? '✓' : '✗ (falta clave)'} · Claude ${e.claude ? '✓ ' + e.modelo : '✗ (falta clave)'}`;
+}).catch(() => { $('estadoApi').textContent = 'Modo sin conexión: arranca el servidor (npm start) para importar de YouTube y usar Claude.'; });
+
+$('btnYt').addEventListener('click', async () => {
+    const q = $('ytCanal').value.trim();
+    if (!q) return;
+    const b = $('btnYt'); b.disabled = true; b.textContent = 'Importando…';
+    try {
+        const c = await api('/api/youtube/canal?q=' + encodeURIComponent(q));
+        $('refCanal').value = c.titulo;
+        $('refEdad').value = c.diasCanal;
+        $('refVideos').value = c.videos.map((v) => `${v.titulo.replace(/\|/g, '/')} | ${v.vistas} | ${v.dias} | ${v.min}`).join('\n');
+        $('btnOutliers').click();
+    } catch (e) { alert(e.message); }
+    finally { b.disabled = false; b.textContent = 'Importar desde YouTube'; }
+});
+
+document.querySelectorAll('button.ia').forEach((b) => b.addEventListener('click', async () => {
+    const prompt = $(b.dataset.prompt).textContent.trim();
+    if (!prompt) { alert('Genera primero el prompt.'); return; }
+    const out = $(b.dataset.out), txt = b.textContent;
+    b.disabled = true; b.textContent = 'Claude está escribiendo…';
+    out.hidden = false; out.textContent = '…';
+    try {
+        const r = await api('/api/claude', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt }) });
+        out.textContent = r.texto + (r.truncado ? '\n\n[Respuesta cortada por longitud]' : '');
+    } catch (e) { out.textContent = '⚠ ' + e.message; }
+    finally { b.disabled = false; b.textContent = txt; }
+}));
+
+$('btnAlRevisor').addEventListener('click', () => { $('gTexto').value = $('iaGuion').textContent; $('btnRevisar').click(); });

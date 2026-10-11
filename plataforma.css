@@ -38,3 +38,9 @@ mark { background: #ffd54f66; color: inherit; }
 #pipeline li { list-style: none; display: flex; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--line); }
 #pipeline select { width: auto; margin: 0; }
 #pipeline span { flex: 1; }
+.api-row { display: flex; gap: 8px; align-items: flex-end; }
+.api-row input { flex: 1; }
+.api-row button { white-space: nowrap; }
+button.ia { background: #6f42c1; }
+button:disabled { opacity: .6; cursor: wait; }
+.ia-out { max-height: 480px; overflow: auto; }

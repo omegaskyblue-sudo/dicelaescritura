@@ -25,7 +25,12 @@
 <!-- 1. REFERENTES -->
 <section id="referentes" class="panel active">
     <h2>Detector de outliers + factor MRV</h2>
-    <p class="hint">Pega los vídeos del canal referente, uno por línea: <code>título | visitas | días desde publicación | duración (min)</code>. Un outlier es un vídeo que supera claramente la mediana del canal.</p>
+    <div class="api-row">
+        <input id="ytCanal" placeholder="@canal, URL del canal o ID UC…">
+        <button id="btnYt">Importar desde YouTube</button>
+    </div>
+    <p id="estadoApi" class="hint"></p>
+    <p class="hint">O pega los vídeos del canal referente, uno por línea: <code>título | visitas | días desde publicación | duración (min)</code>. Un outlier es un vídeo que supera claramente la mediana del canal.</p>
     <div class="grid2">
         <label>Canal referente <input id="refCanal" placeholder="Ej: ruinas olvidadas"></label>
         <label>Días desde el primer vídeo del canal <input id="refEdad" type="number" placeholder="90"></label>
@@ -58,6 +63,8 @@
     <button id="btnIdea">Generar prompt</button>
     <pre id="outIdea" class="out"></pre>
     <button class="copy" data-copy="outIdea">Copiar</button>
+    <button class="ia" data-prompt="outIdea" data-out="iaIdea">Enviar a Claude</button>
+    <div id="iaIdea" class="out ia-out" hidden></div>
     <button id="btnGuardarIdea">Guardar idea en el pipeline</button>
     <h3>Pipeline de ideas</h3>
     <ul id="pipeline"></ul>
@@ -80,6 +87,9 @@
     <button id="btnGuionPrompt">Generar prompt de guion</button>
     <pre id="outGuionPrompt" class="out"></pre>
     <button class="copy" data-copy="outGuionPrompt">Copiar</button>
+    <button class="ia" data-prompt="outGuionPrompt" data-out="iaGuion">Escribir con Claude</button>
+    <button id="btnAlRevisor" class="copy">Pasar al revisor</button>
+    <div id="iaGuion" class="out ia-out" hidden></div>
 
     <h3>Revisión del guion</h3>
     <p class="hint">Pega el guion. Se marcan muletillas típicas de texto generado (antítesis binaria, cadena de negaciones, ritmo de metrónomo) para que lo reescribas con voz propia y aportes valor original.</p>
