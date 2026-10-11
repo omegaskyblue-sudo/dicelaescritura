@@ -3,13 +3,15 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node --env-file-if-exists=.env server.mjs"
-  },
-  "engines": {
-    "node": ">=22"
+    "dev": "wrangler dev",
+    "db:migrar": "wrangler d1 migrations apply estudio-faceless --remote",
+    "db:migrar:local": "wrangler d1 migrations apply estudio-faceless --local",
+    "deploy": "wrangler deploy"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.133.0",
-    "pg": "^8.23.1"
+    "@anthropic-ai/sdk": "^0.133.0"
+  },
+  "devDependencies": {
+    "wrangler": "^4.149.0"
   }
 }

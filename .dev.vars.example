@@ -1,0 +1,5 @@
+# Copia a .dev.vars para desarrollo local (npm run dev). Nunca lo subas al repositorio.
+ANTHROPIC_API_KEY=
+YOUTUBE_API_KEY=
+# Usuarios iniciales (solo si la base de datos está vacía). El primero será administrador.
+ACCESS_USERS=root:cambia-esta-clave

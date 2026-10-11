@@ -1,51 +1,71 @@
 # dicelaescritura
 
-## Estudio Faceless (`plataforma.html`)
+## Estudio Faceless
 
 Herramienta para canales de YouTube faceless: referentes y factor MRV → ideas → guion → métricas → playbook.
+Funciona en **Cloudflare Workers** con base de datos **D1**:
 
-Sin servidor (GitHub Pages) funciona en modo manual. Con el servidor se activan:
+- Inicio de sesión con usuarios; los administradores gestionan el equipo desde la pestaña **Equipo**.
+- Pipeline de ideas y playbooks compartidos por todo el equipo.
+- **Importar desde YouTube** (YouTube Data API v3) y **Enviar a Claude** (Claude API).
+- Las claves son secretos del Worker: el navegador nunca las ve.
 
-- **Importar desde YouTube**: trae los últimos 100 vídeos de un canal (vistas, antigüedad, duración) y detecta outliers.
-- **Enviar a Claude**: genera ideas y guiones directamente desde la plataforma.
+En GitHub Pages (`public/`) la web funciona en modo manual, sin login, YouTube ni Claude.
 
-### Arrancar
+### Estructura
+
+| Ruta | Qué es |
+|---|---|
+| `public/` | Web (HTML/CSS/JS) |
+| `src/worker.js` | Servidor: login, API, proxy a YouTube y Claude |
+| `migrations/` | Esquema de la base de datos D1 |
+| `wrangler.jsonc` | Configuración de Cloudflare |
+
+### Publicar en Cloudflare (desde el panel, sin terminal)
+
+1. **Crear la base de datos**: dash.cloudflare.com → *Storage & Databases* → *D1 SQL Database* →
+   *Create* → nombre `estudio-faceless`. Copia el **Database ID**.
+2. **Crear las tablas**: en esa base de datos → *Console* → pega el contenido de
+   `migrations/0001_inicial.sql` → *Execute*.
+3. **Poner el ID** en `wrangler.jsonc` (`database_id`) y subirlo al repositorio.
+4. **Crear el Worker**: *Workers & Pages* → *Create* → *Import a repository* → este repositorio y la rama.
+   Comando de despliegue: `npx wrangler deploy` (el que propone por defecto).
+5. **Secretos**: en el Worker → *Settings* → *Variables and Secrets* → añade como **Secret**:
+   - `ANTHROPIC_API_KEY`
+   - `YOUTUBE_API_KEY`
+   - `ACCESS_USERS`: usuarios iniciales `usuario:contraseña` separados por comas. **El primero es administrador.**
+     Solo se usa mientras la base de datos no tiene usuarios; después se gestionan desde la web.
+6. Abre `https://estudio-faceless.<tu-subdominio>.workers.dev/plataforma.html` e inicia sesión.
+   Cambia la contraseña nada más entrar.
+
+### Publicar desde la terminal (alternativa)
 
 ```bash
 npm install
-cp .env.example .env   # rellena ANTHROPIC_API_KEY y YOUTUBE_API_KEY
-npm start              # http://localhost:3000/plataforma.html
+npx wrangler login
+npx wrangler d1 create estudio-faceless      # copia el database_id a wrangler.jsonc
+npm run db:migrar                            # crea las tablas en Cloudflare
+npx wrangler secret put ANTHROPIC_API_KEY
+npx wrangler secret put YOUTUBE_API_KEY
+npx wrangler secret put ACCESS_USERS
+npm run deploy
 ```
 
-- Clave de Claude: https://platform.claude.com → API Keys.
-- Clave de YouTube: Google Cloud Console → habilita "YouTube Data API v3" → Credenciales → Clave de API.
-  Importar un canal gasta ~5 unidades de la cuota diaria gratuita (10.000).
+### Desarrollo local
 
-Las claves solo viven en el servidor (`.env`, ignorado por git); el navegador nunca las ve.
+```bash
+npm install
+cp .dev.vars.example .dev.vars               # rellena las claves
+npm run db:migrar:local
+npm run dev                                  # http://localhost:8787/plataforma.html
+```
 
-### Publicar en Render
+### Notas
 
-1. En https://dashboard.render.com → **New → Blueprint** → conecta este repositorio y elige la rama.
-   Render lee `render.yaml` y crea la web `estudio-faceless` y la base de datos Postgres `estudio-faceless-db`
-   (la conexión entre ambas se configura sola).
-2. Te pedirá tres variables secretas:
-   - `ANTHROPIC_API_KEY` y `YOUTUBE_API_KEY`
-   - `ACCESS_USERS`: usuarios iniciales en formato `usuario:contraseña` separados por comas,
-     p. ej. `ana:Clave-larga-1`. **El primero será administrador.** Solo se usa la primera vez
-     (cuando la base de datos no tiene usuarios); después se gestionan desde la web.
-3. Abre `https://<tu-servicio>.onrender.com/plataforma.html` e inicia sesión.
-
-### Usuarios y equipo
-
-- **Administradores**: pestaña **Equipo** para añadir usuarios, poner una contraseña nueva o eliminarlos.
-- **Todos**: botón *Cambiar contraseña* y *Salir* arriba. Las sesiones duran 30 días.
-- El pipeline de ideas y los playbooks se guardan en Postgres y los ve todo el equipo
-  (cada idea indica quién la creó; cada playbook, quién lo editó por última vez).
-- Contraseñas guardadas con scrypt (nunca en claro). Mínimo 8 caracteres.
-- Sin `DATABASE_URL` la plataforma funciona como antes: acceso con `ACCESS_USERS`/`ACCESS_PASSWORD`
-  (ventana del navegador) y datos guardados en cada navegador.
-
-**Plan gratuito de Render:** la web se duerme tras ~15 min sin uso (~1 min en despertar) y
-**la base de datos gratuita caduca a los 30 días** salvo que pases a un plan de pago
-(Basic, desde unos pocos $/mes). Exporta tus datos (botón *Exportar JSON*) si te quedas en el gratuito.
-En la clave de YouTube, restringe en Google Cloud su uso a "YouTube Data API v3".
+- Sesiones de 30 días. Contraseñas con PBKDF2-SHA256 (100 000 iteraciones, con sal), mínimo 8 caracteres.
+- Tras 10 intentos de login fallidos desde una IP, se bloquea 15 minutos.
+- **Plan gratuito de Cloudflare**: suficiente para un equipo pequeño; no se duerme y la base de datos no caduca.
+  Si al iniciar sesión aparece el error *1102 (Worker exceeded resource limits)*, activa *Workers Paid*
+  (5 $/mes): verificar contraseñas puede superar el límite de CPU del plan gratuito.
+- Restringe la clave de YouTube en Google Cloud a "YouTube Data API v3". Importar un canal gasta ~5 unidades
+  de la cuota diaria gratuita (10 000).

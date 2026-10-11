@@ -1,0 +1,27 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "estudio-faceless",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-09-01",
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    // El Worker decide antes de servir cualquier página (exige sesión).
+    "run_worker_first": true,
+    // URLs tal cual (/login.html), sin redirecciones automáticas a /login
+    "html_handling": "none"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "estudio-faceless",
+      // Sustituye por el id que imprime: npx wrangler d1 create estudio-faceless
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "vars": {
+    "CLAUDE_MODEL": "claude-opus-5-5"
+  }
+  // Secretos (npx wrangler secret put NOMBRE): ANTHROPIC_API_KEY, YOUTUBE_API_KEY, ACCESS_USERS
+}
