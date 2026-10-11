@@ -147,6 +147,21 @@ const enviar = (res, status, data) => {
     res.end(JSON.stringify(data));
 };
 
+// Límite de intentos de login: 10 fallos por IP cada 15 minutos.
+const FALLOS = new Map();
+const VENTANA = 15 * 60 * 1000, MAX_FALLOS = 10;
+const ipDe = (req) => (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
+function bloqueado(ip) {
+    const f = FALLOS.get(ip);
+    if (f && Date.now() - f.desde > VENTANA) { FALLOS.delete(ip); return false; }
+    return f?.n >= MAX_FALLOS;
+}
+function anotarFallo(ip) {
+    const f = FALLOS.get(ip) || { n: 0, desde: Date.now() };
+    f.n++; FALLOS.set(ip, f);
+    if (FALLOS.size > 10000) FALLOS.delete(FALLOS.keys().next().value);
+}
+
 const COOKIE = 'ef_sesion';
 const leerCookie = (req) => (req.headers.cookie || '').split(';').map((c) => c.trim().split('='))
     .find(([k]) => k === COOKIE)?.[1];
@@ -220,9 +235,12 @@ const servidor = http.createServer(async (req, res) => {
     try {
         if (url.pathname === '/healthz') { res.writeHead(200); return res.end('ok'); }
         if (CON_DB && url.pathname === '/api/login' && req.method === 'POST') {
+            const ip = ipDe(req);
+            if (bloqueado(ip)) throw new HttpError(429, 'Demasiados intentos. Espera 15 minutos.');
             const { nombre, password } = await leerJson(req);
             const s = await db.login(nombre, password);
-            if (!s) throw new HttpError(401, 'Usuario o contraseña incorrectos');
+            if (!s) { anotarFallo(ip); throw new HttpError(401, 'Usuario o contraseña incorrectos'); }
+            FALLOS.delete(ip);
             ponerCookie(req, res, s.token, s.maxAge);
             return enviar(res, 200, { ok: true });
         }
