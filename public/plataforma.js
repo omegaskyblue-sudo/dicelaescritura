@@ -593,8 +593,9 @@ function pintarPaquete(pq) {
         ['Narrador', pb.voz || 'la voz del canal (guárdala en el playbook, campo «Voz»)'],
         ['Crear escenas', 'Automático (o «por salto de línea» si aparece)'],
         ['Personajes', 'pega las descripciones de abajo; si avisa de que el modelo no usa referencias, pulsa «Cambiar modelo»'],
-        ['Extras', 'efectos de sonido sí · pausas naturales sí · música 15–20 · sin clips de vídeo IA'],
-        ['Antes de generar', 'apunta tu saldo de créditos y pulsa «Revisar el guion visual»'],
+        ['Clips de vídeo IA', '⚠ DESACTIVADOS (0 %): Fliki activa un 20 % por defecto y suponen ~80 % del coste (≈ 43 de 54 créditos en un vídeo de 9 min). Usa la animación suave de imágenes; si quieres un clip, conviértelo escena a escena en el editor'],
+        ['Extras', 'efectos de sonido sí · pausas naturales sí · música 15–20'],
+        ['Antes de generar', 'apunta tu saldo de créditos, pulsa «Revisar el guion visual» y comprueba que las escenas son imágenes y no vídeos (referencia: ~11 créditos por vídeo de 9 min sin clips)'],
     ];
     const lista = (arr) => arr.map((t, i) => `<li>${esc(t)} <button class="mini" data-cp="${i}">Copiar</button></li>`).join('');
     $('outPaquete').innerHTML = `
