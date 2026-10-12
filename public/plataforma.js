@@ -120,7 +120,7 @@ $('btnIdea').addEventListener('click', () => {
     // La palanca de tendencia necesita búsqueda en internet: se activa sola.
     if (document.querySelector('#ideas fieldset input[value=patron]').checked) $('webIdea').checked = true;
     $('outIdea').textContent =
-`Actúa como estratega de contenido para un canal de YouTube del nicho "${nicho}" dirigido al público ${mercado}.
+`Actúa como estratega de contenido para un canal de YouTube del nicho "${nicho}" dirigido al público ${mercado}.${bloqueTradicion()}
 
 Vídeo referente (reciente y viral): "${ref}"
 
@@ -264,7 +264,7 @@ $('gFormato').addEventListener('change', () => {
 });
 
 const PROMPT_SHORT = (tema, angulo, canal, extra) =>
-`Escribe el guion de un YouTube Short (vídeo vertical) sobre: "${tema}".
+`Escribe el guion de un YouTube Short (vídeo vertical) sobre: "${tema}".${bloqueTradicion()}
 ${angulo ? `\nÁngulo y detalles de la idea:\n${angulo}\n` : ''}${canal ? `\nCanal: ${canal}\n` : ''}
 Duración: 45–60 segundos. Extensión: 110–140 palabras y NUNCA más de 150.
 
@@ -298,6 +298,7 @@ Duración: ~${min} minutos. Extensión: unas ${Math.min(min * PALABRAS_MIN, MAX_
 Intro (primeros 30 segundos, objetivo 75 % de retención): ${$('gIntro').value}. Promete algo concreto que el vídeo cumplirá.${
     pb.intro ? `\nCómo hacemos las intros en este canal: ${pb.intro}` : ''}
 
+${bloqueTradicion()}
 Estilo — obligatorio:
 - Investigación y aportación propias: datos concretos, fuentes verificables, una tesis original. Nada de relleno.
 - Ritmo variado: alterna frases muy cortas con otras largas; cambia de tono; usa pausas y preguntas.
@@ -405,6 +406,9 @@ const CAMPOS_PB = [...document.querySelectorAll('[data-pb]')].map((el) => el.dat
 const camposPb = (pb = {}) => Object.fromEntries(CAMPOS_PB.map((k) => [k, pb[k] ?? '']));
 const leerPb = () => Object.fromEntries([...document.querySelectorAll('[data-pb]')].map((el) => [el.dataset.pb, el.value]));
 const canalActivo = () => $('canalActivo').value;
+// Tradición bíblica y público del canal activo, para añadir a todos los prompts.
+const tradicion = () => (playbooks[canalActivo()] || {}).tradicion?.trim() || '';
+const bloqueTradicion = () => (tradicion() ? `\nTradición bíblica y público del canal (obligatorio): ${tradicion()}\n` : '');
 
 function pintarLista() {
     const nombres = Object.keys(playbooks);
@@ -564,7 +568,8 @@ $('btnStoryboard').addEventListener('click', async () => {
     $('outStoryboard').innerHTML = '<p class="hint">Puede tardar 1–2 minutos…</p>';
     try {
         const sb = await api('/api/storyboard', json('POST', {
-            guion, titulo: $('gTema').value, estilo: $('sbEstilo').value, canal: canalActivo(), short: esShort(),
+            guion, titulo: $('gTema').value, estilo: $('sbEstilo').value, short: esShort(),
+            canal: [canalActivo(), tradicion()].filter(Boolean).join(' — '),
             ideaId: MODO_DB ? ideaEnGuion?.id : undefined,
         }));
         pintarStoryboard(sb);
@@ -658,7 +663,8 @@ $('btnPaquete').addEventListener('click', async () => {
     try {
         const pb = playbooks[canalActivo()] || {};
         const pq = await api('/api/paquete', json('POST', {
-            guion: soloNarracion(guion), titulo: $('gTema').value, canal: canalActivo(), short: esShort(),
+            guion: soloNarracion(guion), titulo: $('gTema').value, short: esShort(),
+            canal: [canalActivo(), tradicion()].filter(Boolean).join(' — '),
             estilo: $('sbEstilo').value || pb.estilo_imagen, personajesCanal: pb.personajes,
             ideaId: MODO_DB ? ideaEnGuion?.id : undefined,
         }));
