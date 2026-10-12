@@ -88,3 +88,9 @@ progress { width: 160px; vertical-align: middle; }
 .lista-copiar { padding-left: 18px; }
 .lista-copiar li { margin: 4px 0; }
 #outPaquete textarea { font-size: .85rem; }
+#prodLog { max-height: 260px; overflow: auto; font-size: .85rem; }
+#prodLog .ok-txt { color: var(--ok); }
+#prodLog .warn-txt { color: var(--warn); }
+#prodLog .error { margin: 0; }
+body.produciendo button.ia { opacity: .6; pointer-events: none; }
+#calendario input[type=datetime-local] { width: auto; margin: 0; padding: 4px; }

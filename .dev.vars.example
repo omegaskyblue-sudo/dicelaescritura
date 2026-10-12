@@ -6,3 +6,4 @@ ACCESS_USERS=root:cambia-esta-clave
 
 # Solo para pruebas locales: apuntar a un servidor que imite la API de Fliki
 # FLIKI_API_URL=http://localhost:8902
+# ANTHROPIC_BASE_URL=http://localhost:8903   (pruebas: servidor que imite la API de Claude)

@@ -417,6 +417,71 @@ Guion:
 ${guion}`;
 }
 
+// ---------- Automatización: series, Shorts derivados y capítulos ----------
+const ESQUEMA_SERIE = obj({
+    nombre: str('Nombre corto de la serie (p. ej. «Expediente Resurrección»)'),
+    episodios: {
+        type: 'array',
+        items: obj({
+            titulo: str('Título de YouTube (máx. 70 caracteres), con la frase que se busca al principio'),
+            angulo: str('Contenido del episodio: qué cubre, en qué orden, qué fuentes usa y con qué gancho termina hacia el siguiente'),
+        }),
+    },
+    shorts: {
+        type: 'array',
+        items: obj({
+            episodio: { type: 'integer', description: 'Número (1..N) del episodio al que lleva este Short' },
+            titulo: str('Título del Short (máx. 70 caracteres)'),
+            angulo: str('Una sola idea del episodio, con su gancho de 2 segundos'),
+        }),
+    },
+});
+function promptSerie({ tema, episodios, shortsPorEpisodio, canal, tradicion, ganadoras }) {
+    return `Planifica una serie de YouTube sobre: "${tema}".
+${canal ? `Canal: ${canal}\n` : ''}${tradicion ? `Tradición bíblica y público (obligatorio): ${tradicion}\n` : ''}${ganadoras ? `Lo que ya funciona en el canal (úsalo como patrón):\n${ganadoras}\n` : ''}
+- ${episodios} episodios largos de 8–10 minutos que se sigan en orden; cada uno cierra con un gancho al siguiente.
+- ${shortsPorEpisodio} Shorts por episodio (≤ 60 s), cada uno con una sola idea del episodio y que lleve a él.
+- Títulos pensados para búsqueda: la frase que la gente escribe, al principio.
+- Rigor: fuentes verificables; separa lo que la historia puede comprobar de lo que es fe.`;
+}
+
+const ESQUEMA_SHORTS = obj({
+    shorts: {
+        type: 'array',
+        items: obj({
+            titulo: str('Título del Short (máx. 70 caracteres), con la frase que se busca al principio'),
+            guion: str('Guion de 90–130 palabras con marcas [VISUAL: …]: gancho en 2 s, una sola idea, cita exacta si hay texto bíblico, cierre que remita al vídeo largo'),
+        }),
+    },
+});
+function promptShorts({ titulo, guion, n, tradicion }) {
+    return `Del siguiente guion de un vídeo largo ("${titulo || 'vídeo'}"), extrae ${n} YouTube Shorts verticales de 35–55 segundos.
+${tradicion ? `Tradición bíblica y público (obligatorio): ${tradicion}\n` : ''}Cada Short: una sola idea fuerte del vídeo, gancho en los 2 primeros segundos (sin saludos), frases cortas,
+referencia exacta si cita la Biblia o una fuente, y cierre que remita al vídeo largo («El expediente completo, en el vídeo relacionado»).
+Prohibido "No es X, es Y", cadenas de negaciones y muletillas. No pidas suscripciones ni likes.
+
+Guion del vídeo largo:
+${guion}`;
+}
+
+const ESQUEMA_CAPITULOS = obj({
+    capitulos: { type: 'array', items: obj({ segundo: { type: 'integer' }, titulo: str('Título del capítulo, máx. 60 caracteres, con palabras que la gente buscaría') }) },
+});
+function promptCapitulos({ transcripcion, duracion }) {
+    return `Crea los capítulos de YouTube para este vídeo de ${Math.round(duracion)} segundos a partir de su transcripción con tiempos.
+- Entre 6 y 15 capítulos; el primero en el segundo 0; cada uno de al menos 15 segundos; usa el segundo donde empieza cada tema.
+- Títulos claros y buscables (personajes, fuentes, preguntas), en español.
+
+Transcripción ([segundo] texto):
+${transcripcion}`;
+}
+
+async function claudeJson(cfg, prompt, esquema) {
+    const r = await claude(cfg, prompt, false, esquema);
+    if (r.truncado) throw new HttpError(422, 'La respuesta de Claude se cortó; prueba con menos contenido.');
+    try { return JSON.parse(r.texto); } catch { throw new HttpError(502, 'Claude no devolvió un resultado válido; inténtalo de nuevo.'); }
+}
+
 // ---------- Configuración (claves editables desde la web) ----------
 // Los valores guardados en D1 desde la pestaña Configuración tienen prioridad sobre
 // los secretos del Worker. Las claves nunca se devuelven al navegador, solo enmascaradas.
@@ -428,10 +493,11 @@ const MODELOS = ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'];
 // (p. ej. tokens de usuario) como Authorization: Bearer. Se guarda el modo que funcionó.
 // Las claves de usuario (no ligadas a un espacio de trabajo) necesitan además la cabecera
 // anthropic-workspace-id con el ID del espacio de trabajo (wrkspc_…).
+let CLAUDE_BASE_URL; // ANTHROPIC_BASE_URL permite apuntar a un servidor de pruebas
 function clienteClaude(clave, modo, workspace, opciones = {}) {
     const auth = modo === 'authToken' ? { authToken: clave, apiKey: null } : { apiKey: clave };
     const defaultHeaders = workspace ? { 'anthropic-workspace-id': workspace } : undefined;
-    return new Anthropic({ ...auth, defaultHeaders, ...opciones });
+    return new Anthropic({ ...auth, defaultHeaders, ...(CLAUDE_BASE_URL && { baseURL: CLAUDE_BASE_URL }), ...opciones });
 }
 const pideWorkspace = (e) => e instanceof Anthropic.BadRequestError && /anthropic-workspace-id/.test(e.message);
 
@@ -495,11 +561,12 @@ async function asegurarEsquema(DB) {
     const hay = new Set(results.map((c) => c.name));
     const faltan = [
         ['detalle', "TEXT NOT NULL DEFAULT ''"], ['guion', "TEXT NOT NULL DEFAULT ''"], ['guion_en', 'TEXT'], ['storyboard', 'TEXT'], ['fliki', 'TEXT'], ['paquete', 'TEXT'],
+        ['formato', "TEXT NOT NULL DEFAULT 'largo'"], ['serie', "TEXT NOT NULL DEFAULT ''"], ['padre_id', 'INTEGER'], ['publicar_en', 'TEXT'],
     ].filter(([col]) => !hay.has(col));
     for (const [col, tipo] of faltan) await DB.prepare(`ALTER TABLE ideas ADD COLUMN ${col} ${tipo}`).run();
     esquemaListo = true;
 }
-const COLS_IDEA = "id, titulo, nicho, estado, creado_por, creado_en, detalle, guion_en, length(guion) > 0 AS tiene_guion, storyboard IS NOT NULL AS tiene_storyboard, fliki";
+const COLS_IDEA = "id, titulo, nicho, estado, creado_por, creado_en, detalle, guion_en, length(guion) > 0 AS tiene_guion, storyboard IS NOT NULL AS tiene_storyboard, fliki, formato, serie, padre_id, publicar_en";
 
 // ---------- API con sesión ----------
 async function api(req, env, url, u) {
@@ -525,6 +592,24 @@ async function api(req, env, url, u) {
         }
         if (p === '/api/fliki/video' && m === 'POST') return enviar(200, await crearVideoFliki(env, cfg, await leerJson(req), u));
         if (p === '/api/fliki/estado' && m === 'GET') return enviar(200, await estadoFliki(env, cfg, +url.searchParams.get('ideaId')));
+    }
+    if (p === '/api/ia/serie' && m === 'POST') {
+        const b = await leerJson(req);
+        if (!String(b.tema || '').trim()) throw new HttpError(400, 'Falta el tema de la serie');
+        b.episodios = Math.max(1, Math.min(8, +b.episodios || 3));
+        b.shortsPorEpisodio = Math.max(0, Math.min(5, +(b.shortsPorEpisodio ?? 2) || 0));
+        return enviar(200, await claudeJson((await configuracion(env)).cfg, promptSerie(b), ESQUEMA_SERIE));
+    }
+    if (p === '/api/ia/shorts' && m === 'POST') {
+        const b = await leerJson(req);
+        if (!String(b.guion || '').trim()) throw new HttpError(400, 'No hay guion');
+        b.n = Math.max(1, Math.min(7, +b.n || 3));
+        return enviar(200, await claudeJson((await configuracion(env)).cfg, promptShorts(b), ESQUEMA_SHORTS));
+    }
+    if (p === '/api/ia/capitulos' && m === 'POST') {
+        const b = await leerJson(req);
+        if (!String(b.transcripcion || '').trim()) throw new HttpError(400, 'No hay transcripción');
+        return enviar(200, await claudeJson((await configuracion(env)).cfg, promptCapitulos(b), ESQUEMA_CAPITULOS));
     }
     if (p === '/api/paquete' && m === 'POST') {
         const b = await leerJson(req);
@@ -612,9 +697,12 @@ async function api(req, env, url, u) {
     if (p === '/api/ideas' && m === 'POST') {
         const b = await leerJson(req);
         if (!String(b.titulo || '').trim()) throw new HttpError(400, 'Falta el título');
-        const idea = await DB.prepare(`INSERT INTO ideas (titulo, nicho, detalle, creado_por) VALUES (?, ?, ?, ?) RETURNING ${COLS_IDEA}`)
-            .bind(String(b.titulo).slice(0, 300), String(b.nicho || '').slice(0, 100), String(b.detalle || '').slice(0, 5000), u.nombre).first();
-        return enviar(201, { ...idea, tiene_guion: false });
+        const idea = await DB.prepare(`INSERT INTO ideas (titulo, nicho, detalle, creado_por, estado, formato, serie, padre_id, publicar_en)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING ${COLS_IDEA}`)
+            .bind(String(b.titulo).slice(0, 300), String(b.nicho || '').slice(0, 100), String(b.detalle || '').slice(0, 5000), u.nombre,
+                String(b.estado || 'Idea').slice(0, 30), b.formato === 'short' ? 'short' : 'largo', String(b.serie || '').slice(0, 120),
+                Number.isInteger(b.padre_id) ? b.padre_id : null, b.publicar_en ? String(b.publicar_en).slice(0, 25) : null).first();
+        return enviar(201, { ...idea, tiene_guion: false, tiene_storyboard: false });
     }
     if ((x = p.match(/^\/api\/ideas\/(\d+)$/))) {
         if (m === 'GET') {
@@ -633,6 +721,10 @@ async function api(req, env, url, u) {
                 sets.push('guion = ?', "guion_en = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')");
                 vals.push(String(b.guion).slice(0, 300000));
             }
+            if (b.titulo != null && String(b.titulo).trim()) { sets.push('titulo = ?'); vals.push(String(b.titulo).slice(0, 300)); }
+            if (b.formato != null) { sets.push('formato = ?'); vals.push(b.formato === 'short' ? 'short' : 'largo'); }
+            if (b.publicar_en !== undefined) { sets.push('publicar_en = ?'); vals.push(b.publicar_en ? String(b.publicar_en).slice(0, 25) : null); }
+            if (b.paquete !== undefined) { sets.push('paquete = ?'); vals.push(b.paquete ? JSON.stringify(b.paquete).slice(0, 200000) : null); }
             if (!sets.length) throw new HttpError(400, 'Nada que actualizar');
             await DB.prepare(`UPDATE ideas SET ${sets.join(', ')} WHERE id = ?`).bind(...vals, +x[1]).run();
             return ok();
@@ -690,6 +782,7 @@ async function api(req, env, url, u) {
 export default {
     async fetch(req, env) {
         if (env.FLIKI_API_URL) FLIKI = env.FLIKI_API_URL;
+        if (env.ANTHROPIC_BASE_URL) CLAUDE_BASE_URL = env.ANTHROPIC_BASE_URL;
         const url = new URL(req.url);
         try {
             if (url.pathname === '/healthz') return new Response('ok');

@@ -1,7 +1,7 @@
 // YAiContenido — todo corre en el navegador, sin servidor.
 
 // Formato del canal: vídeos de 10 minutos como máximo (~140 palabras por minuto de narración).
-const MAX_MIN = 10, PALABRAS_MIN = 140;
+const MAX_MIN = 10, PALABRAS_MIN = 155; // 155: velocidad medida con la voz Dario de Fliki
 const esShort = () => $('gFormato').value === 'short';
 const limiteMin = () => (esShort() ? 1 : MAX_MIN); // Short: 60 s como máximo
 const duracionTxt = (min) => (min < 2 ? `${Math.round(min * 60)} s` : `${min.toFixed(1)} min`);
@@ -143,9 +143,11 @@ const json = (method, body) => ({ method, headers: { 'Content-Type': 'applicatio
 let pipeline = store.get('ef_pipeline', []);
 const ESTADOS = ['Idea', 'Guion', 'Edición', 'Publicado', 'Descartada'];
 function pintarPipeline() {
-    $('pipeline').innerHTML = pipeline.map((p, i) => `<li><span>${p.tiene_guion || p.guion ? '<span title="Tiene guion guardado">📄</span> ' : ''}${p.fliki ? '<span title="Vídeo en Fliki">🎬</span> ' : ''}${esc(p.titulo)} <small class="hint">· ${esc(p.nicho)}${
+    $('pipeline').innerHTML = pipeline.map((p, i) => `<li><span>${p.tiene_guion || p.guion ? '<span title="Tiene guion guardado">📄</span> ' : ''}${p.fliki ? '<span title="Vídeo en Fliki">🎬</span> ' : ''}${p.formato === 'short' ? '<span class="tag warn">Short</span> ' : ''}${esc(p.titulo)} <small class="hint">· ${esc(p.nicho)}${
+        p.serie ? ' · ' + esc(p.serie) : ''}${p.publicar_en ? ' · 📅 ' + esc(fechaCorta(p.publicar_en)) : ''}${
         p.creado_por ? ' · ' + esc(p.creado_por) : ''}</small></span>
         <button class="mini" data-guion="${i}">Guion</button>
+        <button class="mini ia" data-producir="${i}" title="Guion + corrección + paquete${p.formato === 'short' ? '' : ' + Shorts'} con Claude">Producir</button>
         <select data-i="${i}">${ESTADOS.map((e) => `<option${e === p.estado ? ' selected' : ''}>${e}</option>`).join('')}</select>
         <button data-del="${i}" class="copy">✕</button></li>`).join('') || '<li class="hint">Vacío</li>';
     // Selector de la pestaña Métricas
@@ -155,12 +157,11 @@ function pintarPipeline() {
     if (previo && pipeline[+previo]) sel.value = previo;
 }
 
-async function crearIdea(titulo, nicho, estado = 'Idea', detalle = '') {
-    const idea = { titulo, nicho, estado, detalle, fecha: new Date().toISOString().slice(0, 10) };
+// extra: { formato: 'largo'|'short', serie, padre_id, publicar_en: 'AAAA-MM-DD HH:MM' (hora de España) }
+async function crearIdea(titulo, nicho, estado = 'Idea', detalle = '', extra = {}) {
+    const idea = { titulo, nicho, estado, detalle, formato: 'largo', fecha: new Date().toISOString().slice(0, 10), ...extra };
     if (MODO_DB) {
         const creada = await api('/api/ideas', json('POST', idea));
-        if (estado !== 'Idea') await api(`/api/ideas/${creada.id}`, json('PATCH', { estado }));
-        creada.estado = estado;
         pipeline.unshift(creada);
     } else { pipeline.unshift(idea); store.set('ef_pipeline', pipeline); }
     pintarPipeline();
@@ -183,6 +184,13 @@ async function guardarGuion(idea, guion, estado) {
     pintarPipeline();
 }
 const fallo = (e) => alert(e.message);
+const DIAS = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
+// 'AAAA-MM-DD HH:MM' → 'dom 18/10 09:00'
+function fechaCorta(f) {
+    const [d, h = ''] = String(f).split(' ');
+    const [a, m, dia] = d.split('-').map(Number);
+    return `${DIAS[new Date(Date.UTC(a, m - 1, dia)).getUTCDay()]} ${String(dia).padStart(2, '0')}/${String(m).padStart(2, '0')} ${h}`.trim();
+}
 $('pipeline').addEventListener('change', (e) => cambiarEstado(pipeline[e.target.dataset.i], e.target.value));
 $('pipeline').addEventListener('click', async (e) => {
     if (e.target.dataset.guion != null) {
@@ -235,8 +243,11 @@ pintarPipeline();
 
 // ---------- 3. Guion ----------
 let ideaEnGuion = null; // idea del pipeline cuyo guion se está escribiendo
-function irAGuion({ titulo, detalle, idea }) {
+function irAGuion({ titulo, detalle, idea }, navegar = true) {
     $('gTema').value = titulo;
+    $('gFormato').value = idea?.formato === 'short' ? 'short' : 'largo';
+    $('gMinLabel').hidden = esShort();
+    $('fkFormato').value = esShort() ? '9:16' : '16:9';
     $('gAngulo').value = detalle || '';
     ideaEnGuion = idea || null;
     $('gIdeaVinculada').textContent = !idea ? ''
@@ -254,7 +265,7 @@ function irAGuion({ titulo, detalle, idea }) {
     pintarFliki(idea?.fliki || null);
     pintarPaquete(idea?.paquete || null);
     $('btnGuionPrompt').click();
-    irA('guion');
+    if (navegar) irA('guion');
 }
 
 $('gFormato').addEventListener('change', () => {
@@ -293,7 +304,7 @@ $('btnGuionPrompt').addEventListener('click', () => {
     $('outGuionPrompt').textContent =
 `Escribe un guion de narración para YouTube sobre: "${$('gTema').value || '(tema)'}".
 ${angulo ? `\nÁngulo y detalles de la idea:\n${angulo}\n` : ''}${canal ? `\nCanal (${canalActivo()}): ${canal}\n` : ''}
-Duración: ~${min} minutos. Extensión: unas ${Math.min(min * PALABRAS_MIN, MAX_MIN * PALABRAS_MIN - 100)} palabras de narración y NUNCA más de ${MAX_MIN * PALABRAS_MIN} (límite de ${MAX_MIN} minutos).
+Duración: ~${min} minutos. Extensión: unas ${Math.min(min * PALABRAS_MIN, MAX_MIN * PALABRAS_MIN - 150)} palabras de narración y NUNCA más de ${MAX_MIN * PALABRAS_MIN} (límite de ${MAX_MIN} minutos).
 
 Intro (primeros 30 segundos, objetivo 75 % de retención): ${$('gIntro').value}. Promete algo concreto que el vídeo cumplirá.${
     pb.intro ? `\nCómo hacemos las intros en este canal: ${pb.intro}` : ''}

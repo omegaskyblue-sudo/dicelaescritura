@@ -87,8 +87,29 @@
     <div id="iaIdea" class="out ia-out" hidden></div>
     <div id="propuestas"></div>
     <button id="btnGuardarIdea">Guardar otra idea en el pipeline</button>
+
+    <h3>Planificar una serie con Claude</h3>
+    <p class="hint">Claude diseña los episodios y sus Shorts, y se crean en el pipeline con fecha de publicación (hora de España).</p>
+    <label>Tema de la serie <input id="srTema" placeholder="Ej.: ¿Cómo sabemos que Jesús resucitó? Investigación histórica"></label>
+    <div class="grid3">
+        <label>Episodios largos <input id="srEp" type="number" value="3" min="1" max="8"></label>
+        <label>Shorts por episodio <input id="srSh" type="number" value="2" min="0" max="5"></label>
+        <label>Primer episodio (día) <input id="srInicio" type="date"></label>
+        <label>Hora de los episodios <input id="srHoraLargo" type="time" value="09:00"></label>
+        <label>Hora de los Shorts <input id="srHoraShort" type="time" value="19:00"></label>
+        <label>Cada cuántos días un episodio <input id="srCada" type="number" value="7" min="1" max="30"></label>
+    </div>
+    <button id="btnSerie" class="ia">Planificar serie</button>
+    <div id="outSerie"></div>
+
     <h3>Pipeline de ideas</h3>
+    <p class="hint">«Producir»: Claude escribe el guion, lo corrige hasta pasar el revisor, prepara el paquete para Fliki y, en los vídeos largos, deriva sus Shorts.
+        Después solo queda crear el vídeo en Fliki y publicarlo.</p>
+    <div id="prodLog" class="out" hidden></div>
     <ul id="pipeline"></ul>
+
+    <h3>Calendario de publicación</h3>
+    <div id="calendario"></div>
 </section>
 
 <!-- 3. GUION -->
@@ -141,6 +162,11 @@
         (coherentes con el playbook del canal), guías visuales y los datos para publicar en YouTube. Se guarda en la idea.</p>
     <button id="btnPaquete" class="ia">Preparar paquete con Claude</button>
     <div id="outPaquete"></div>
+
+    <h3>Capítulos de YouTube (tras exportar el vídeo)</h3>
+    <p class="hint">Sube la transcripción .srt que da Fliki y Claude propone los capítulos con sus tiempos. Se guardan en la idea.</p>
+    <input id="capSrt" type="file" accept=".srt,.vtt,text/plain">
+    <div id="outCapitulos"></div>
 
     <h3>Vídeo con Fliki por API (plan Premium)</h3>
     <p class="hint">Envía el guion a Fliki, que genera imágenes con IA, voz, subtítulos y música. Vídeos de hasta 10 minutos
@@ -276,5 +302,6 @@
 </main>
 
 <script src="plataforma.js"></script>
+<script src="produccion.js"></script>
 </body>
 </html>

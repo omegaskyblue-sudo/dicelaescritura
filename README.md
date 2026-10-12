@@ -62,6 +62,16 @@ npm run db:migrar:local
 npm run dev                                  # http://localhost:8787/plataforma.html
 ```
 
+### Flujo automatizado
+
+1. **Ideas → Planificar una serie**: Claude diseña los episodios y sus Shorts; se crean en el pipeline con fechas
+   (episodios cada N días a la hora elegida; el primer Short el mismo día y el resto cada 2 días).
+2. **Producir** (en cada idea) o **Producir toda la serie**: guion con Claude → revisor → corrección automática
+   (hasta 2 rondas) → paquete para Fliki → en vídeos largos sueltos, Shorts derivados con fecha.
+3. **Fliki** (manual con el plan Standard): pegar la narración, ajustes y personajes del paquete. Clips de vídeo IA al 0 %.
+4. **Capítulos**: tras exportar, subir el .srt en la pestaña Guion; Claude propone los capítulos con las normas de YouTube.
+5. **Calendario**: fechas y horas de España para programar en YouTube (zona horaria «Madrid»).
+
 ### Notas
 
 - Sesiones de 30 días. Contraseñas con PBKDF2-SHA256 (100 000 iteraciones, con sal), mínimo 8 caracteres.
