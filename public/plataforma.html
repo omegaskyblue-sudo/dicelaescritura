@@ -49,6 +49,10 @@
         <label>Días desde el primer vídeo del canal <input id="refEdad" type="number" placeholder="90"></label>
     </div>
     <textarea id="refVideos" rows="8" placeholder="What did ancient humans do before jobs existed? | 2700000 | 30 | 8&#10;Otro vídeo | 45000 | 60 | 9"></textarea>
+    <label>Mostrar <select id="refTipo">
+        <option value="todos">Todos (Shorts y largos comparados por separado)</option>
+        <option value="largos">Solo vídeos largos</option>
+        <option value="shorts">Solo Shorts</option></select></label>
     <button id="btnOutliers">Analizar</button>
     <div id="outOutliers"></div>
 </section>
@@ -92,7 +96,10 @@
     <h2>Guion: prompt + revisión de estilo</h2>
     <div class="grid2">
         <label>Tema <input id="gTema"></label>
-        <label>Duración objetivo (máx. 10 min) <input id="gMin" type="number" value="10" min="1" max="10"></label>
+        <label>Formato <select id="gFormato">
+            <option value="largo">Vídeo largo (hasta 10 min)</option>
+            <option value="short">Short (hasta 60 s, vertical)</option></select></label>
+        <label id="gMinLabel">Duración objetivo (máx. 10 min) <input id="gMin" type="number" value="10" min="1" max="10"></label>
     </div>
     <label>Ángulo / detalles de la idea <textarea id="gAngulo" rows="3" placeholder="Se rellena al venir desde una propuesta"></textarea></label>
     <label>Tipo de intro

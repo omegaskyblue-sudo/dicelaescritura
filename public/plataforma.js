@@ -2,6 +2,9 @@
 
 // Formato del canal: vídeos de 10 minutos como máximo (~140 palabras por minuto de narración).
 const MAX_MIN = 10, PALABRAS_MIN = 140;
+const esShort = () => $('gFormato').value === 'short';
+const limiteMin = () => (esShort() ? 1 : MAX_MIN); // Short: 60 s como máximo
+const duracionTxt = (min) => (min < 2 ? `${Math.round(min * 60)} s` : `${min.toFixed(1)} min`);
 const minutosDe = (texto) => texto.replace(/\[VISUAL:[^\]]*\]/gi, '').split(/\s+/).filter(Boolean).length / PALABRAS_MIN;
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -29,20 +32,28 @@ document.querySelectorAll('button.copy[data-copy]').forEach((b) =>
 const median = (a) => { const s = [...a].sort((x, y) => x - y); const m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
 
 let outliers = [];
+$('refTipo').addEventListener('change', () => $('refVideos').value.trim() && $('btnOutliers').click());
 $('btnOutliers').addEventListener('click', () => {
     const rows = $('refVideos').value.split('\n').map((l) => l.split('|').map((x) => x.trim()))
         .filter((r) => r.length >= 2 && !isNaN(parseFloat(r[1])))
-        .map(([titulo, v, d, m]) => ({ titulo, vistas: parseFloat(v), dias: parseFloat(d) || null, min: parseFloat(m) || null }));
-    if (!rows.length) { $('outOutliers').innerHTML = '<p class="hint">No hay filas válidas.</p>'; return; }
+        .map(([titulo, v, d, m]) => ({ titulo, vistas: parseFloat(v), dias: parseFloat(d) || null, min: parseFloat(m) || null }))
+        // Shorts: hasta 3 min (la API de YouTube no los distingue; se deduce por la duración)
+        .map((r) => ({ ...r, short: r.min != null && r.min <= 3 }))
+        .filter((r) => $('refTipo').value === 'todos' || (r.short === ($('refTipo').value === 'shorts')));
+    if (!rows.length) { $('outOutliers').innerHTML = '<p class="hint">No hay filas válidas para ese filtro.</p>'; return; }
 
+    // Cada vídeo se compara con la mediana de su tipo: los Shorts y los largos tienen audiencias distintas.
+    const medShorts = median(rows.filter((r) => r.short).map((r) => r.vistas) || []);
+    const medLargos = median(rows.filter((r) => !r.short).map((r) => r.vistas) || []);
     const med = median(rows.map((r) => r.vistas));
     const edadCanal = parseFloat($('refEdad').value);
     rows.forEach((r) => {
-        r.ratio = r.vistas / med;
+        r.ratio = r.vistas / ((r.short ? medShorts : medLargos) || med);
         r.reciente = r.dias != null && r.dias <= 90;
         r.viral = r.ratio >= 3 || r.vistas >= 500000;
         // Mejorable en duración para el formato de 8–10 min: corto (se profundiza) o muy largo (se condensa)
-        r.mejorable = r.min != null && (r.min < 6 || r.min > 15);
+        // (un Short siempre es ampliable a vídeo largo del mismo tema)
+        r.mejorable = r.short || (r.min != null && (r.min < 6 || r.min > 15));
         r.score = (r.reciente ? 1 : 0) + (r.viral ? 1 : 0) + (r.mejorable ? 1 : 0);
     });
     rows.sort((a, b) => b.score - a.score || b.ratio - a.ratio);
@@ -50,12 +61,14 @@ $('btnOutliers').addEventListener('click', () => {
 
     const tag = (ok, txt) => `<span class="tag ${ok ? 'ok' : 'bad'}">${txt}</span>`;
     const canalNota = isNaN(edadCanal) ? '' :
-        `<div class="card">Canal ${edadCanal <= 90 ? 'reciente (≤ 3 meses): buena señal de nicho abierto' : 'con más de 3 meses: busca un mercado o subnicho donde aún no exista'}. Mediana: ${Math.round(med).toLocaleString('es')} vistas.</div>`;
+        `<div class="card">Canal ${edadCanal <= 90 ? 'reciente (≤ 3 meses): buena señal de nicho abierto' : 'con más de 3 meses: busca un mercado o subnicho donde aún no exista'}. Mediana: ${
+            [rows.some((r) => !r.short) && `vídeos largos ${Math.round(medLargos).toLocaleString('es')} vistas`,
+             rows.some((r) => r.short) && `Shorts ${Math.round(medShorts).toLocaleString('es')} vistas`].filter(Boolean).join(' · ')}.</div>`;
     $('outOutliers').innerHTML = canalNota + `<table><tr><th>Vídeo</th><th>Vistas</th><th>× mediana</th><th>MRV</th><th></th></tr>${
-        rows.map((r, i) => `<tr><td>${esc(r.titulo)}</td><td>${r.vistas.toLocaleString('es')}</td><td>${r.ratio.toFixed(1)}×</td><td>${
+        rows.map((r, i) => `<tr><td>${r.short ? '<span class="tag warn">Short</span> ' : ''}${esc(r.titulo)}</td><td>${r.vistas.toLocaleString('es')}</td><td>${r.ratio.toFixed(1)}×</td><td>${
             tag(r.mejorable, 'M')} ${tag(r.reciente, 'R')} ${tag(r.viral, 'V')}</td>
             <td><button class="mini" data-usar="${i}">Usar</button></td></tr>`).join('')}</table>
-        <p class="hint">M = dura &lt; 6 min o &gt; 15 min (adaptable a 8–10 min; revisa también formato y contenido a mano) · R = ≤ 90 días · V = ≥ 3× la mediana. Las ideas con M+R+V salen arriba: pulsa «Usar» para llevarla a Ideas.</p>`;
+        <p class="hint">Short = dura ≤ 3 min; cada vídeo se compara con la mediana de su tipo. M = Short (ampliable a vídeo largo) o vídeo de &lt; 6 min o &gt; 15 min (adaptable a 8–10 min) · R = ≤ 90 días · V = ≥ 3× la mediana. Las ideas con M+R+V salen arriba: pulsa «Usar» para llevarla a Ideas.</p>`;
 });
 
 // «Usar»: el vídeo pasa a Ideas como referente, con los demás éxitos del canal como contexto.
@@ -63,7 +76,7 @@ $('outOutliers').addEventListener('click', (e) => {
     const i = e.target.dataset.usar;
     if (i == null) return;
     const r = outliers[+i];
-    $('ideaRef').value = r.titulo;
+    $('ideaRef').value = r.titulo + (r.short ? ' (Short)' : '');
     $('ideaContexto').value = outliers.filter((o) => o !== r).sort((a, b) => b.ratio - a.ratio).slice(0, 5)
         .map((o) => `${o.titulo} — ${o.vistas.toLocaleString('es')} vistas (${o.ratio.toFixed(1)}× la mediana)`).join('\n');
     irA('ideas');
@@ -98,7 +111,8 @@ $('btnIdea').addEventListener('click', () => {
 
 Vídeo referente (reciente y viral): "${ref}"
 
-Objetivo: no copiar, sino MEJORAR la idea aportando un valor diferencial claro y original.
+Objetivo: no copiar, sino MEJORAR la idea aportando un valor diferencial claro y original.${
+    /\(Short\)\s*$/.test(ref) ? '\nEl referente es un Short que funcionó: cada propuesta debe ser un vídeo largo (8–10 min) que desarrolle el tema y, además, un Short derivado de ≤ 60 s que lleve a ese vídeo (indica su gancho de 2 s).' : ''}
 Aplica estas palancas:
 ${pal.join('\n') || '- (elige al menos una palanca)'}
 ${gan ? `\nMis ideas ganadoras (patrones que ya funcionan en mi canal):\n${gan}\n` : ''}${
@@ -229,7 +243,34 @@ function irAGuion({ titulo, detalle, idea }) {
     irA('guion');
 }
 
+$('gFormato').addEventListener('change', () => {
+    $('gMinLabel').hidden = esShort();
+    $('fkFormato').value = esShort() ? '9:16' : '16:9';
+    $('btnGuionPrompt').click();
+});
+
+const PROMPT_SHORT = (tema, angulo, canal, extra) =>
+`Escribe el guion de un YouTube Short (vídeo vertical) sobre: "${tema}".
+${angulo ? `\nÁngulo y detalles de la idea:\n${angulo}\n` : ''}${canal ? `\nCanal: ${canal}\n` : ''}
+Duración: 45–60 segundos. Extensión: 110–140 palabras y NUNCA más de 150.
+
+Estructura obligatoria:
+- 0–2 s: gancho que detenga el scroll (pregunta directa, frase inesperada o promesa concreta). Sin saludos ni presentaciones.
+- Desarrollo: una sola idea, en frases cortas, con una imagen o historia concreta; si citas la Biblia, libro, capítulo y versículo exactos.
+- Cierre: una aplicación práctica para hoy y una última frase que conecte con el gancho inicial para que el vídeo se vea en bucle.
+- No pidas suscripciones ni likes dentro del guion.
+
+Estilo: cercano y sereno; ritmo variado; prohibido "No es X, es Y", las cadenas de negaciones y las muletillas.
+${extra ? `\nInstrucciones propias del canal (tienen prioridad):\n${extra}\n` : ''}
+Devuelve solo el texto narrado, con marcas [VISUAL: …] para el editor (planos de 2–4 s).`;
+
 $('btnGuionPrompt').addEventListener('click', () => {
+    if (esShort()) {
+        const pb = playbooks[canalActivo()] || {};
+        const canal = [canalActivo(), pb.nicho, pb.voz && `voz: ${pb.voz}`].filter(Boolean).join(' · ');
+        $('outGuionPrompt').textContent = PROMPT_SHORT($('gTema').value || '(tema)', $('gAngulo').value.trim(), canal, $('gExtra').value.trim());
+        return;
+    }
     const min = Math.min(MAX_MIN, Math.max(1, +$('gMin').value || MAX_MIN));
     $('gMin').value = min;
     const pb = playbooks[canalActivo()] || {};
@@ -288,9 +329,9 @@ $('btnRevisar').addEventListener('click', () => {
         hallazgos.map((h) => `<tr><td>${h.nombre}</td><td><span class="tag ${h.n ? 'warn' : 'ok'}">${h.n}</span></td></tr>`).join('')}
         <tr><td>Ritmo (variación de longitud de frase, CV=${cv.toFixed(2)}; media ${media.toFixed(1)} palabras)</td>
         <td><span class="tag ${metronomo ? 'warn' : 'ok'}">${metronomo ? 'monótono' : 'variado'}</span></td></tr>
-        <tr><td>Duración estimada (${PALABRAS_MIN} palabras/min; máximo ${MAX_MIN} min)</td>
-        <td><span class="tag ${minutosDe(txt) > MAX_MIN ? 'bad' : 'ok'}">${minutosDe(txt).toFixed(1)} min</span></td></tr></table>
-        ${minutosDe(txt) > MAX_MIN ? `<p class="error">El guion supera los ${MAX_MIN} minutos: recórtalo hasta unas ${MAX_MIN * PALABRAS_MIN} palabras.</p>` : ''}
+        <tr><td>Duración estimada (${PALABRAS_MIN} palabras/min; máximo ${esShort() ? '60 s (Short)' : MAX_MIN + ' min'})</td>
+        <td><span class="tag ${minutosDe(txt) > limiteMin() ? 'bad' : 'ok'}">${duracionTxt(minutosDe(txt))}</span></td></tr></table>
+        ${minutosDe(txt) > limiteMin() ? `<p class="error">El guion supera ${esShort() ? 'los 60 segundos de un Short' : `los ${MAX_MIN} minutos`}: recórtalo hasta unas ${Math.round(limiteMin() * PALABRAS_MIN)} palabras.</p>` : ''}
         <div class="out">${marcado}</div>`;
 });
 
@@ -509,7 +550,7 @@ $('btnStoryboard').addEventListener('click', async () => {
     $('outStoryboard').innerHTML = '<p class="hint">Puede tardar 1–2 minutos…</p>';
     try {
         const sb = await api('/api/storyboard', json('POST', {
-            guion, titulo: $('gTema').value, estilo: $('sbEstilo').value, canal: canalActivo(),
+            guion, titulo: $('gTema').value, estilo: $('sbEstilo').value, canal: canalActivo(), short: esShort(),
             ideaId: MODO_DB ? ideaEnGuion?.id : undefined,
         }));
         pintarStoryboard(sb);
@@ -566,11 +607,11 @@ $('btnFliki').addEventListener('click', async () => {
     if (!lineas.length) return alert('No hay guion. Escríbelo o pégalo en el revisor.');
     const texto = lineas.join('\n');
     const minutos = minutosDe(texto);
-    if (minutos > MAX_MIN || texto.length > FK_MAX) {
-        return alert(`El guion dura ~${minutos.toFixed(1)} min (${texto.length.toLocaleString('es')} caracteres). El máximo es ${MAX_MIN} minutos: recórtalo en el revisor y guárdalo.`);
+    if (minutos > limiteMin() * 1.1 || texto.length > FK_MAX) {
+        return alert(`El guion dura ~${duracionTxt(minutos)} (${texto.length.toLocaleString('es')} caracteres). El máximo es ${esShort() ? '60 segundos para un Short' : MAX_MIN + ' minutos'}: recórtalo en el revisor y guárdalo.`);
     }
     if (ideaEnGuion.fliki && !confirm('Esta idea ya tiene un vídeo en Fliki. ¿Crear otro? (gasta créditos de nuevo)')) return;
-    if (!confirm(`Se enviará un vídeo de ~${minutos.toFixed(1)} min a Fliki, con estilo «${FK_ESTILOS[$('fkEstilo').value]}»${$('fkModelo').value ? ` y clips de vídeo IA en el ${$('fkClip').value}% de escenas (más caro)` : ''}. Gasta créditos de tu plan. ¿Continuar?`)) return;
+    if (!confirm(`Se enviará ${esShort() ? 'un Short' : 'un vídeo'} de ~${duracionTxt(minutos)} a Fliki, con estilo «${FK_ESTILOS[$('fkEstilo').value]}»${$('fkModelo').value ? ` y clips de vídeo IA en el ${$('fkClip').value}% de escenas (más caro)` : ''}. Gasta créditos de tu plan. ¿Continuar?`)) return;
     const b = $('btnFliki'), txt = b.textContent;
     b.disabled = true; b.textContent = 'Enviando a Fliki…';
     try {

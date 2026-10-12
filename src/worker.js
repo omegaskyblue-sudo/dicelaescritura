@@ -240,18 +240,20 @@ const ESQUEMA_STORYBOARD = obj({
     },
 });
 
-function promptStoryboard({ titulo, guion, estilo, canal }) {
+function promptStoryboard({ titulo, guion, estilo, canal, short }) {
     return `Convierte este guion de YouTube en un storyboard para el editor y propone miniaturas.
 
 Título: ${titulo || '(sin título)'}
 ${canal ? `Canal: ${canal}\n` : ''}${estilo ? `Estilo visual del canal (respétalo en todos los prompts): ${estilo}\n` : ''}
 Reglas:
-- Divide TODO el guion, en orden y sin saltarte partes, en escenas de 6–12 segundos (≈ 15–30 palabras de narración cada una).
-  (Los vídeos del canal duran como máximo 10 minutos: unas 50–90 escenas.)
+${short
+    ? `- Es un YouTube Short vertical (9:16) de ≤ 60 s: divide TODO el guion en escenas de 2–4 segundos (≈ 5–10 palabras), unas 15–25 escenas; encuadres verticales y la primera escena muy llamativa.`
+    : `- Divide TODO el guion, en orden y sin saltarte partes, en escenas de 6–12 segundos (≈ 15–30 palabras de narración cada una).
+  (Los vídeos del canal duran como máximo 10 minutos: unas 50–90 escenas.)`}
 - "narracion" es el texto literal del guion de esa escena (sin las marcas [VISUAL]; úsalas como pista visual).
 - "prompt_imagen" en inglés: sujeto, acción, entorno, luz y encuadre concretos; coherente con el estilo visual; nunca texto ni letras en la imagen; nada de personas reales identificables ni logotipos.
 - "busqueda_archivo": términos para Pexels/Pixabay o Wikimedia Commons (arte de dominio público si encaja).
-- Propón 4 miniaturas distintas: texto corto e impactante (≤ 4 palabras) que complemente al título sin repetirlo.
+- Propón 4 miniaturas distintas: texto corto e impactante (≤ 4 palabras) que complemente al título sin repetirlo${short ? ' (portada vertical del Short)' : ''}.
 
 Guion:
 ${guion}`;
