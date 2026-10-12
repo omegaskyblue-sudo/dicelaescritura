@@ -247,6 +247,7 @@ Título: ${titulo || '(sin título)'}
 ${canal ? `Canal: ${canal}\n` : ''}${estilo ? `Estilo visual del canal (respétalo en todos los prompts): ${estilo}\n` : ''}
 Reglas:
 - Divide TODO el guion, en orden y sin saltarte partes, en escenas de 6–12 segundos (≈ 15–30 palabras de narración cada una).
+  (Los vídeos del canal duran como máximo 10 minutos: unas 50–90 escenas.)
 - "narracion" es el texto literal del guion de esa escena (sin las marcas [VISUAL]; úsalas como pista visual).
 - "prompt_imagen" en inglés: sujeto, acción, entorno, luz y encuadre concretos; coherente con el estilo visual; nunca texto ni letras en la imagen; nada de personas reales identificables ni logotipos.
 - "busqueda_archivo": términos para Pexels/Pixabay o Wikimedia Commons (arte de dominio público si encaja).
@@ -320,7 +321,7 @@ async function crearVideoFliki(env, cfg, b, u) {
     if (!cfg.FLIKI_VOICE_ID) throw new HttpError(400, 'Elige una voz de Fliki en Configuración');
     const partes = (Array.isArray(b.partes) ? b.partes : []).map((t) => String(t).trim()).filter(Boolean);
     if (!partes.length) throw new HttpError(400, 'No hay guion para el vídeo');
-    if (partes.length > 6) throw new HttpError(400, 'Máximo 6 partes por vídeo');
+    if (partes.length > 1) throw new HttpError(400, 'Un vídeo por petición (máximo 10 minutos)');
     const largo = partes.find((t) => t.length > FLIKI_MAX_CHARS);
     if (largo) throw new HttpError(400, `Cada parte admite como máximo ${FLIKI_MAX_CHARS} caracteres en la API de Fliki`);
     const estilo = FLIKI_ESTILOS.includes(b.artStyle) ? b.artStyle : 'biblical';

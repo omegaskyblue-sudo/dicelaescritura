@@ -1,4 +1,8 @@
 // YAiContenido — todo corre en el navegador, sin servidor.
+
+// Formato del canal: vídeos de 10 minutos como máximo (~140 palabras por minuto de narración).
+const MAX_MIN = 10, PALABRAS_MIN = 140;
+const minutosDe = (texto) => texto.replace(/\[VISUAL:[^\]]*\]/gi, '').split(/\s+/).filter(Boolean).length / PALABRAS_MIN;
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
@@ -37,7 +41,8 @@ $('btnOutliers').addEventListener('click', () => {
         r.ratio = r.vistas / med;
         r.reciente = r.dias != null && r.dias <= 90;
         r.viral = r.ratio >= 3 || r.vistas >= 500000;
-        r.mejorable = r.min != null && r.min < 15; // margen para alargar a 20–40 min
+        // Mejorable en duración para el formato de 8–10 min: corto (se profundiza) o muy largo (se condensa)
+        r.mejorable = r.min != null && (r.min < 6 || r.min > 15);
         r.score = (r.reciente ? 1 : 0) + (r.viral ? 1 : 0) + (r.mejorable ? 1 : 0);
     });
     rows.sort((a, b) => b.score - a.score || b.ratio - a.ratio);
@@ -50,7 +55,7 @@ $('btnOutliers').addEventListener('click', () => {
         rows.map((r, i) => `<tr><td>${esc(r.titulo)}</td><td>${r.vistas.toLocaleString('es')}</td><td>${r.ratio.toFixed(1)}×</td><td>${
             tag(r.mejorable, 'M')} ${tag(r.reciente, 'R')} ${tag(r.viral, 'V')}</td>
             <td><button class="mini" data-usar="${i}">Usar</button></td></tr>`).join('')}</table>
-        <p class="hint">M = dura &lt; 15 min (mejorable en duración; revisa también formato y contenido a mano) · R = ≤ 90 días · V = ≥ 3× la mediana. Las ideas con M+R+V salen arriba: pulsa «Usar» para llevarla a Ideas.</p>`;
+        <p class="hint">M = dura &lt; 6 min o &gt; 15 min (adaptable a 8–10 min; revisa también formato y contenido a mano) · R = ≤ 90 días · V = ≥ 3× la mediana. Las ideas con M+R+V salen arriba: pulsa «Usar» para llevarla a Ideas.</p>`;
 });
 
 // «Usar»: el vídeo pasa a Ideas como referente, con los demás éxitos del canal como contexto.
@@ -66,7 +71,7 @@ $('outOutliers').addEventListener('click', (e) => {
 
 // ---------- 2. Ideas ----------
 const PALANCAS = {
-    duracion: 'Amplía la idea a un vídeo de 20–40 minutos con más profundidad, contexto y ejemplos que el original.',
+    duracion: 'Adapta la idea a un vídeo de 8–10 minutos (máximo 10): si el referente es corto, aporta más profundidad y contexto; si es largo, condénsalo en lo esencial sin relleno.',
     formato: 'Propón un formato visual distinto al del referente (p. ej. documental con material de archivo/stock en vez de animación) y justifica por qué encaja.',
     mercado: 'Adapta la idea al mercado {mercado}: conserva solo lo que también interese a esa audiencia, cambia ejemplos, referencias y perspectiva culturales. Indica si hay demanda real en ambos mercados.',
     subnicho: 'Traslada la idea al subnicho "{nicho}" manteniendo el gancho que la hizo viral.',
@@ -225,14 +230,15 @@ function irAGuion({ titulo, detalle, idea }) {
 }
 
 $('btnGuionPrompt').addEventListener('click', () => {
-    const min = +$('gMin').value || 25;
+    const min = Math.min(MAX_MIN, Math.max(1, +$('gMin').value || MAX_MIN));
+    $('gMin').value = min;
     const pb = playbooks[canalActivo()] || {};
     const angulo = $('gAngulo').value.trim(), extra = $('gExtra').value.trim();
     const canal = [pb.nicho && `nicho: ${pb.nicho}`, pb.formato && `formato visual: ${pb.formato}`, pb.voz && `voz: ${pb.voz}`].filter(Boolean).join(' · ');
     $('outGuionPrompt').textContent =
 `Escribe un guion de narración para YouTube sobre: "${$('gTema').value || '(tema)'}".
 ${angulo ? `\nÁngulo y detalles de la idea:\n${angulo}\n` : ''}${canal ? `\nCanal (${canalActivo()}): ${canal}\n` : ''}
-Duración: ~${min} minutos (~${min * 140} palabras).
+Duración: ~${min} minutos. Extensión: unas ${Math.min(min * PALABRAS_MIN, MAX_MIN * PALABRAS_MIN - 100)} palabras de narración y NUNCA más de ${MAX_MIN * PALABRAS_MIN} (límite de ${MAX_MIN} minutos).
 
 Intro (primeros 30 segundos, objetivo 75 % de retención): ${$('gIntro').value}. Promete algo concreto que el vídeo cumplirá.${
     pb.intro ? `\nCómo hacemos las intros en este canal: ${pb.intro}` : ''}
@@ -243,7 +249,7 @@ Estilo — obligatorio:
 - Prohibido el recurso "No es X, es Y" y sus variantes.
 - Prohibidas las cadenas de negaciones del tipo "No con A, no con B, no con C, sino con…".
 - Evita las muletillas: "en definitiva", "sin duda", "cabe destacar", "en un mundo donde", "adentrémonos".
-- Bloques de 2–4 minutos, cada uno cierra con un gancho hacia el siguiente.
+- Bloques de 1–2 minutos, cada uno cierra con un gancho hacia el siguiente. Sin relleno: cada frase debe aportar.
 ${extra ? `\nInstrucciones propias del canal (tienen prioridad):\n${extra}\n` : ''}
 Devuelve solo el texto narrado, con marcas [VISUAL: …] para el editor.`;
 });
@@ -281,7 +287,10 @@ $('btnRevisar').addEventListener('click', () => {
     $('outRevision').innerHTML = `<table><tr><th>Patrón</th><th>Casos</th></tr>${
         hallazgos.map((h) => `<tr><td>${h.nombre}</td><td><span class="tag ${h.n ? 'warn' : 'ok'}">${h.n}</span></td></tr>`).join('')}
         <tr><td>Ritmo (variación de longitud de frase, CV=${cv.toFixed(2)}; media ${media.toFixed(1)} palabras)</td>
-        <td><span class="tag ${metronomo ? 'warn' : 'ok'}">${metronomo ? 'monótono' : 'variado'}</span></td></tr></table>
+        <td><span class="tag ${metronomo ? 'warn' : 'ok'}">${metronomo ? 'monótono' : 'variado'}</span></td></tr>
+        <tr><td>Duración estimada (${PALABRAS_MIN} palabras/min; máximo ${MAX_MIN} min)</td>
+        <td><span class="tag ${minutosDe(txt) > MAX_MIN ? 'bad' : 'ok'}">${minutosDe(txt).toFixed(1)} min</span></td></tr></table>
+        ${minutosDe(txt) > MAX_MIN ? `<p class="error">El guion supera los ${MAX_MIN} minutos: recórtalo hasta unas ${MAX_MIN * PALABRAS_MIN} palabras.</p>` : ''}
         <div class="out">${marcado}</div>`;
 });
 
@@ -497,7 +506,7 @@ $('btnStoryboard').addEventListener('click', async () => {
     if (!guion || guion.startsWith('⚠')) return alert('Primero escribe o pega el guion (pestaña Guion).');
     const b = $('btnStoryboard'), txt = b.textContent;
     b.disabled = true; b.textContent = 'Claude está preparando el storyboard…';
-    $('outStoryboard').innerHTML = '<p class="hint">Puede tardar 1–3 minutos en un guion largo…</p>';
+    $('outStoryboard').innerHTML = '<p class="hint">Puede tardar 1–2 minutos…</p>';
     try {
         const sb = await api('/api/storyboard', json('POST', {
             guion, titulo: $('gTema').value, estilo: $('sbEstilo').value, canal: canalActivo(),
@@ -515,7 +524,7 @@ const FK_ESTILOS = { biblical: 'Bíblico', cinematic: 'Cinematográfico', realis
     threeDimensionModel: '3D', lineArt: 'Dibujo de línea', modelingCompound: 'Plastilina', whimsical: 'Caprichoso',
     tinyWorld: 'Mundo en miniatura', technicalIllustration: 'Ilustración técnica' };
 const FK_ANIM = { 'Mix:Subtle Flow': 'Suave (recomendado)', Mix: 'Mixta', 'Mix:Dramatic': 'Dramática', None: 'Sin animación' };
-const FK_MAX = 9500; // margen bajo el límite de 10.000 caracteres de la API
+const FK_MAX = 10000; // límite de caracteres por vídeo de la API de Fliki
 const FK_ESTADOS = { queued: 'En cola', processing: 'Procesando', success: 'Listo', error: 'Error', canceled: 'Cancelado' };
 $('fkEstilo').innerHTML = Object.entries(FK_ESTILOS).map(([v, t]) => `<option value="${v}">${t}</option>`).join('');
 $('fkAnim').innerHTML = Object.entries(FK_ANIM).map(([v, t]) => `<option value="${v}">${t}</option>`).join('');
@@ -528,19 +537,6 @@ function textoFliki() {
     const guion = ($('gTexto').value.trim() || $('iaGuion').textContent.trim()).replace(/\[VISUAL:[^\]]*\]/gi, '');
     return { lineas: guion.split(/\n+/).map((l) => l.trim()).filter(Boolean), porLineas: false };
 }
-// Agrupa líneas en partes de ≤ FK_MAX caracteres (una línea demasiado larga se corta por frases).
-function partirFliki(lineas) {
-    const piezas = lineas.flatMap((l) => l.length <= FK_MAX ? [l] : l.match(/[^.!?…]+[.!?…]*\s*/g).map((f) => f.trim()));
-    const partes = [];
-    let actual = '';
-    for (const pz of piezas) {
-        if (actual && (actual + '\n' + pz).length > FK_MAX) { partes.push(actual); actual = pz; }
-        else actual = actual ? actual + '\n' + pz : pz;
-    }
-    if (actual) partes.push(actual);
-    return partes;
-}
-
 let fkTimer = null;
 function pintarFliki(est) {
     clearTimeout(fkTimer);
@@ -568,15 +564,18 @@ $('btnFliki').addEventListener('click', async () => {
     if (!MODO_DB || !ideaEnGuion?.id) return alert('Abre el guion desde una idea del pipeline (botón «Guion» o «Escribir guion») para poder seguir el vídeo.');
     const { lineas, porLineas } = textoFliki();
     if (!lineas.length) return alert('No hay guion. Escríbelo o pégalo en el revisor.');
-    const partes = partirFliki(lineas);
-    const total = lineas.join('\n').length;
+    const texto = lineas.join('\n');
+    const minutos = minutosDe(texto);
+    if (minutos > MAX_MIN || texto.length > FK_MAX) {
+        return alert(`El guion dura ~${minutos.toFixed(1)} min (${texto.length.toLocaleString('es')} caracteres). El máximo es ${MAX_MIN} minutos: recórtalo en el revisor y guárdalo.`);
+    }
     if (ideaEnGuion.fliki && !confirm('Esta idea ya tiene un vídeo en Fliki. ¿Crear otro? (gasta créditos de nuevo)')) return;
-    if (!confirm(`Se enviarán ${total.toLocaleString('es')} caracteres${partes.length > 1 ? ` en ${partes.length} partes (la API admite ~10.000 por vídeo)` : ''} a Fliki, con estilo «${FK_ESTILOS[$('fkEstilo').value]}»${$('fkModelo').value ? ` y clips de vídeo IA en el ${$('fkClip').value}% de escenas (más caro)` : ''}. Gasta créditos de tu plan. ¿Continuar?`)) return;
+    if (!confirm(`Se enviará un vídeo de ~${minutos.toFixed(1)} min a Fliki, con estilo «${FK_ESTILOS[$('fkEstilo').value]}»${$('fkModelo').value ? ` y clips de vídeo IA en el ${$('fkClip').value}% de escenas (más caro)` : ''}. Gasta créditos de tu plan. ¿Continuar?`)) return;
     const b = $('btnFliki'), txt = b.textContent;
     b.disabled = true; b.textContent = 'Enviando a Fliki…';
     try {
         const est = await api('/api/fliki/video', json('POST', {
-            ideaId: ideaEnGuion.id, titulo: $('gTema').value, partes, lineas: porLineas,
+            ideaId: ideaEnGuion.id, titulo: $('gTema').value, partes: [texto], lineas: porLineas,
             aspectRatio: $('fkFormato').value, artStyle: $('fkEstilo').value, animacion: $('fkAnim').value,
             modeloVideo: $('fkModelo').value, clipPct: +$('fkClip').value || 0, musica: +$('fkMusica').value,
             subtitulos: $('fkSubs').checked, pausas: $('fkPausas').checked, efectos: $('fkSfx').checked,

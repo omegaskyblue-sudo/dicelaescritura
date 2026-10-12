@@ -64,7 +64,7 @@
     </div>
     <fieldset>
         <legend>Palancas</legend>
-        <label><input type="checkbox" value="duracion" checked> Duración (llevarlo a 20–40 min)</label>
+        <label><input type="checkbox" value="duracion" checked> Duración (adaptarlo a 8–10 min)</label>
         <label><input type="checkbox" value="formato"> Cambio de formato visual (stickman → documental/stock…)</label>
         <label><input type="checkbox" value="mercado" checked> Cambio de mercado (EN → ES, validar demanda en ambos)</label>
         <label><input type="checkbox" value="subnicho"> Cambio de subnicho</label>
@@ -92,7 +92,7 @@
     <h2>Guion: prompt + revisión de estilo</h2>
     <div class="grid2">
         <label>Tema <input id="gTema"></label>
-        <label>Duración objetivo (min) <input id="gMin" type="number" value="25"></label>
+        <label>Duración objetivo (máx. 10 min) <input id="gMin" type="number" value="10" min="1" max="10"></label>
     </div>
     <label>Ángulo / detalles de la idea <textarea id="gAngulo" rows="3" placeholder="Se rellena al venir desde una propuesta"></textarea></label>
     <label>Tipo de intro
@@ -130,8 +130,8 @@
     <div id="outStoryboard"></div>
 
     <h3>Vídeo con Fliki</h3>
-    <p class="hint">Envía el guion a Fliki, que genera imágenes con IA, voz, subtítulos y música. La API admite hasta 10.000 caracteres
-        (~11 min) por vídeo; si el guion es más largo se divide en partes. El estado se consulta como mucho una vez por minuto.</p>
+    <p class="hint">Envía el guion a Fliki, que genera imágenes con IA, voz, subtítulos y música. Vídeos de hasta 10 minutos
+        (~1.400 palabras, dentro del límite de 10.000 caracteres de la API). El estado se consulta como mucho una vez por minuto.</p>
     <div class="grid3">
         <label>Formato <select id="fkFormato"><option value="16:9">YouTube 16:9</option><option value="9:16">Short 9:16</option><option value="1:1">Cuadrado 1:1</option></select></label>
         <label>Estilo de imagen <select id="fkEstilo"></select></label>

@@ -71,7 +71,8 @@ npm run dev                                  # http://localhost:8787/plataforma.
   (5 $/mes): verificar contraseñas puede superar el límite de CPU del plan gratuito.
 - **Fliki (vídeo):** en *Configuración* pon la clave de API de Fliki (plan Premium), carga y elige una voz en español y,
   opcionalmente, el ID de tu kit de marca. En *Guion → Vídeo con Fliki* se envía el guion (o las escenas del storyboard)
-  con imágenes IA (estilo «Bíblico» por defecto). La API admite 10.000 caracteres por vídeo: los guiones largos se
-  dividen en partes. Límite de Fliki: 10 peticiones cada 10 minutos, por eso el estado se consulta como mucho cada minuto.
+  con imágenes IA (estilo «Bíblico» por defecto).
+- **Formato: vídeos de 10 minutos como máximo** (~1.400 palabras). El prompt de guion lo impone, el revisor muestra la
+  duración estimada y Fliki no envía guiones más largos (la API admite 10.000 caracteres por vídeo). Límite de Fliki: 10 peticiones cada 10 minutos, por eso el estado se consulta como mucho cada minuto.
 - Restringe la clave de YouTube en Google Cloud a "YouTube Data API v3". Importar un canal gasta ~5 unidades
   de la cuota diaria gratuita (10 000).
