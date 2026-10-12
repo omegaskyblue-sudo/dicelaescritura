@@ -86,3 +86,22 @@ npm run dev                                  # http://localhost:8787/plataforma.
   duración estimada y Fliki no envía guiones más largos (la API admite 10.000 caracteres por vídeo). Límite de Fliki: 10 peticiones cada 10 minutos, por eso el estado se consulta como mucho cada minuto.
 - Restringe la clave de YouTube en Google Cloud a "YouTube Data API v3". Importar un canal gasta ~5 unidades
   de la cuota diaria gratuita (10 000).
+
+## Subida y programación automática en YouTube
+
+1. **Google Cloud Console** (el mismo proyecto de la clave de YouTube): «APIs y servicios» → habilita *YouTube Data API v3*.
+2. **Pantalla de consentimiento OAuth**: tipo *Externo*, añade tu cuenta de Google como *usuario de prueba*.
+3. **Credenciales → Crear ID de cliente OAuth → Aplicación web**. URI de redireccionamiento autorizado:
+   `https://yaicontenido.omegaskyblue.workers.dev/api/youtube/oauth/callback` (aparece en Configuración para copiarla).
+4. En la web, **Configuración → Canal de YouTube**: pega ID y secreto de cliente y pulsa *Conectar canal de YouTube*.
+5. En **Guion**, abre la idea → *Subir a YouTube y programar*: elige MP4, miniatura y .srt. El vídeo va directo del
+   navegador a Google; título, descripción, capítulos y etiquetas salen del paquete y se programa a la fecha de la idea
+   (hora de España). La idea pasa a «Programado».
+
+Limitaciones de Google:
+- Proyectos sin verificar: los vídeos subidos por API quedan **bloqueados como privados** hasta pasar la auditoría
+  gratuita *YouTube API Services – Audit and Quota Extension*. Mientras tanto, programa a mano en YouTube Studio.
+- Con la app en modo *Prueba*, el permiso caduca a los **7 días**: vuelve a pulsar *Conectar*. Publica la app
+  (En producción) para evitarlo.
+- Cuota diaria de 10.000 unidades: cada subida gasta ~1.600 (unas 6 subidas al día).
+- Miniaturas personalizadas: el canal debe estar verificado por teléfono.

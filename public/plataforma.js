@@ -141,7 +141,7 @@ let MODO_DB = false;
 const json = (method, body) => ({ method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
 let pipeline = store.get('ef_pipeline', []);
-const ESTADOS = ['Idea', 'Guion', 'Edición', 'Publicado', 'Descartada'];
+const ESTADOS = ['Idea', 'Guion', 'Edición', 'Programado', 'Publicado', 'Descartada'];
 function pintarPipeline() {
     $('pipeline').innerHTML = pipeline.map((p, i) => `<li><span>${p.tiene_guion || p.guion ? '<span title="Tiene guion guardado">📄</span> ' : ''}${p.fliki ? '<span title="Vídeo en Fliki">🎬</span> ' : ''}${p.formato === 'short' ? '<span class="tag warn">Short</span> ' : ''}${esc(p.titulo)} <small class="hint">· ${esc(p.nicho)}${
         p.serie ? ' · ' + esc(p.serie) : ''}${p.publicar_en ? ' · 📅 ' + esc(fechaCorta(p.publicar_en)) : ''}${

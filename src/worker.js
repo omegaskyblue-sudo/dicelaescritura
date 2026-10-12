@@ -482,11 +482,106 @@ async function claudeJson(cfg, prompt, esquema) {
     try { return JSON.parse(r.texto); } catch { throw new HttpError(502, 'Claude no devolvió un resultado válido; inténtalo de nuevo.'); }
 }
 
+// ---------- YouTube: conexión OAuth, subida y programación ----------
+// Permisos: subir vídeos y gestionar miniaturas, subtítulos y listas de reproducción.
+const YT_SCOPES = 'https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.force-ssl';
+const oauthRedirect = (url) => `${url.origin}/api/youtube/oauth/callback`;
+const guardarAjuste = (DB, clave, valor, usuario) => DB.prepare(`INSERT INTO configuracion (clave, valor, actualizado_por) VALUES (?1, ?2, ?3)
+    ON CONFLICT (clave) DO UPDATE SET valor = ?2, actualizado_por = ?3, actualizado_en = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`).bind(clave, valor, usuario).run();
+const leerAjuste = async (DB, clave) => (await DB.prepare('SELECT valor FROM configuracion WHERE clave = ?').bind(clave).first())?.valor || '';
+
+async function googleToken(cuerpo) {
+    const res = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(cuerpo),
+    });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) throw new HttpError(400, `Google: ${d.error_description || d.error || res.status}`);
+    return d;
+}
+
+let tokenYT = null; // { token, caduca } en memoria del Worker
+async function accesoYT(env, cfg) {
+    if (tokenYT && tokenYT.caduca > Date.now() + 60000) return tokenYT.token;
+    const refresh = await leerAjuste(env.DB, 'YT_REFRESH_TOKEN');
+    if (!refresh) throw new HttpError(400, 'Conecta primero tu canal de YouTube (Configuración)');
+    try {
+        const d = await googleToken({ client_id: cfg.GOOGLE_CLIENT_ID, client_secret: cfg.GOOGLE_CLIENT_SECRET, refresh_token: refresh, grant_type: 'refresh_token' });
+        tokenYT = { token: d.access_token, caduca: Date.now() + (d.expires_in || 3600) * 1000 };
+        return tokenYT.token;
+    } catch (e) {
+        throw new HttpError(400, `La conexión con YouTube ha caducado o se revocó: vuelve a conectar el canal en Configuración. (${e.message})`);
+    }
+}
+
+async function ytAuth(token, metodo, ruta, { query = {}, json: cuerpo, body, tipo } = {}) {
+    const url = new URL(ruta.startsWith('http') ? ruta : `${YT}/${ruta}`);
+    for (const [k, v] of Object.entries(query)) url.searchParams.set(k, v);
+    const res = await fetch(url, {
+        method: metodo,
+        headers: { Authorization: `Bearer ${token}`, ...(cuerpo ? { 'Content-Type': 'application/json' } : tipo ? { 'Content-Type': tipo } : {}) },
+        body: cuerpo ? JSON.stringify(cuerpo) : body,
+    });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) throw new HttpError(502, `YouTube: ${d.error?.message || res.status}`);
+    return d;
+}
+
+// 'AAAA-MM-DD HH:MM' en hora de España → ISO en UTC (tiene en cuenta el horario de verano)
+function madridAUTC(f) {
+    const m = String(f || '').match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
+    if (!m) return null;
+    const objetivo = Date.UTC(+m[1], m[2] - 1, +m[3], +m[4], +m[5]);
+    const enMadrid = (t) => {
+        const p = Object.fromEntries(new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Madrid', hourCycle: 'h23',
+            year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).formatToParts(new Date(t)).map((x) => [x.type, x.value]));
+        return Date.UTC(+p.year, p.month - 1, +p.day, +p.hour, +p.minute);
+    };
+    let t = objetivo;
+    for (let i = 0; i < 3; i++) t -= enMadrid(t) - objetivo;
+    return new Date(t).toISOString();
+}
+
+// Metadatos del vídeo a partir de la idea y su paquete.
+function metadatosYT(idea, b) {
+    const pq = idea.paquete ? JSON.parse(idea.paquete) : {};
+    const titulo = String(b.titulo || pq.titulos?.[0] || idea.titulo).slice(0, 100);
+    const descripcion = [pq.capitulos, b.descripcion ?? pq.descripcion_youtube].filter(Boolean).join('\n\n').slice(0, 5000);
+    let etiquetas = [], largo = 0;
+    for (const e of pq.etiquetas || []) { if (largo + e.length + 1 > 480) break; etiquetas.push(e); largo += e.length + 1; }
+    const publishAt = b.programar ? madridAUTC(b.publicar_en || idea.publicar_en) : null;
+    if (b.programar && !publishAt) throw new HttpError(400, 'Fecha de publicación no válida');
+    if (publishAt && new Date(publishAt) < new Date(Date.now() + 15 * 60000)) throw new HttpError(400, 'La fecha de publicación debe ser al menos 15 minutos en el futuro');
+    return {
+        snippet: { title: titulo, description: descripcion, tags: etiquetas, categoryId: String(b.categoria || '27'),
+            defaultLanguage: 'es-ES', defaultAudioLanguage: 'es-ES' },
+        status: {
+            privacyStatus: publishAt ? 'private' : (['public', 'unlisted', 'private'].includes(b.privacidad) ? b.privacidad : 'private'),
+            ...(publishAt && { publishAt }),
+            selfDeclaredMadeForKids: false, embeddable: true, license: 'youtube',
+            containsSyntheticMedia: b.sintetico !== false,
+        },
+    };
+}
+
+async function listaReproduccion(token, nombre) {
+    let pageToken = '';
+    do {
+        const r = await ytAuth(token, 'GET', 'playlists', { query: { part: 'snippet', mine: 'true', maxResults: '50', ...(pageToken && { pageToken }) } });
+        const l = r.items?.find((x) => x.snippet.title.trim().toLowerCase() === nombre.trim().toLowerCase());
+        if (l) return l.id;
+        pageToken = r.nextPageToken;
+    } while (pageToken);
+    const nueva = await ytAuth(token, 'POST', 'playlists', { query: { part: 'snippet,status' },
+        json: { snippet: { title: nombre, defaultLanguage: 'es-ES' }, status: { privacyStatus: 'public' } } });
+    return nueva.id;
+}
+
 // ---------- Configuración (claves editables desde la web) ----------
 // Los valores guardados en D1 desde la pestaña Configuración tienen prioridad sobre
 // los secretos del Worker. Las claves nunca se devuelven al navegador, solo enmascaradas.
-const AJUSTES = ['ANTHROPIC_API_KEY', 'YOUTUBE_API_KEY', 'CLAUDE_MODEL', 'FLIKI_API_KEY', 'FLIKI_VOICE_ID', 'FLIKI_VOICE_NAME', 'FLIKI_BRAND_ID'];
-const SECRETOS = new Set(['ANTHROPIC_API_KEY', 'YOUTUBE_API_KEY', 'FLIKI_API_KEY']);
+const AJUSTES = ['ANTHROPIC_API_KEY', 'YOUTUBE_API_KEY', 'CLAUDE_MODEL', 'FLIKI_API_KEY', 'FLIKI_VOICE_ID', 'FLIKI_VOICE_NAME', 'FLIKI_BRAND_ID',
+    'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'];
+const SECRETOS = new Set(['ANTHROPIC_API_KEY', 'YOUTUBE_API_KEY', 'FLIKI_API_KEY', 'GOOGLE_CLIENT_SECRET']);
 const MODELOS = ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'];
 
 // Las claves de la consola de Claude se envían como x-api-key; otros tipos de credencial
@@ -548,6 +643,7 @@ async function probarClave(clave, valor, workspace) {
     }
     if (clave === 'CLAUDE_MODEL' && !MODELOS.includes(valor)) throw new HttpError(400, 'Modelo no válido');
     if (clave === 'FLIKI_API_KEY') await fliki(valor, 'GET', '/languages'); // lanza error si la clave no vale
+    if (clave === 'GOOGLE_CLIENT_ID' && !/^[\w.-]+\.apps\.googleusercontent\.com$/.test(valor)) throw new HttpError(400, 'El ID de cliente de Google termina en «.apps.googleusercontent.com»');
     if (clave === 'FLIKI_BRAND_ID' && !/^[\w-]{6,64}$/.test(valor)) throw new HttpError(400, 'ID de kit de marca no válido (cópialo del final de su URL en app.fliki.ai/brand-kits)');
 }
 
@@ -561,12 +657,12 @@ async function asegurarEsquema(DB) {
     const hay = new Set(results.map((c) => c.name));
     const faltan = [
         ['detalle', "TEXT NOT NULL DEFAULT ''"], ['guion', "TEXT NOT NULL DEFAULT ''"], ['guion_en', 'TEXT'], ['storyboard', 'TEXT'], ['fliki', 'TEXT'], ['paquete', 'TEXT'],
-        ['formato', "TEXT NOT NULL DEFAULT 'largo'"], ['serie', "TEXT NOT NULL DEFAULT ''"], ['padre_id', 'INTEGER'], ['publicar_en', 'TEXT'],
+        ['formato', "TEXT NOT NULL DEFAULT 'largo'"], ['serie', "TEXT NOT NULL DEFAULT ''"], ['padre_id', 'INTEGER'], ['publicar_en', 'TEXT'], ['youtube', 'TEXT'],
     ].filter(([col]) => !hay.has(col));
     for (const [col, tipo] of faltan) await DB.prepare(`ALTER TABLE ideas ADD COLUMN ${col} ${tipo}`).run();
     esquemaListo = true;
 }
-const COLS_IDEA = "id, titulo, nicho, estado, creado_por, creado_en, detalle, guion_en, length(guion) > 0 AS tiene_guion, storyboard IS NOT NULL AS tiene_storyboard, fliki, formato, serie, padre_id, publicar_en";
+const COLS_IDEA = "id, titulo, nicho, estado, creado_por, creado_en, detalle, guion_en, length(guion) > 0 AS tiene_guion, storyboard IS NOT NULL AS tiene_storyboard, fliki, formato, serie, padre_id, publicar_en, youtube";
 
 // ---------- API con sesión ----------
 async function api(req, env, url, u) {
@@ -582,6 +678,98 @@ async function api(req, env, url, u) {
     }
     if (p === '/api/youtube/canal' && m === 'GET') {
         return enviar(200, await canal((await configuracion(env)).cfg, url.searchParams.get('q') || ''));
+    }
+    if (p.startsWith('/api/youtube/') && p !== '/api/youtube/canal') {
+        soloAdmin();
+        const { cfg } = await configuracion(env);
+        if (p === '/api/youtube/oauth/inicio' && m === 'GET') {
+            if (!cfg.GOOGLE_CLIENT_ID || !cfg.GOOGLE_CLIENT_SECRET) throw new HttpError(400, 'Guarda primero el ID y el secreto de cliente de Google');
+            const estado = hex(crypto.getRandomValues(new Uint8Array(16)));
+            await guardarAjuste(DB, 'YT_OAUTH_STATE', `${estado}:${Date.now() + 600000}`, u.nombre);
+            const auth = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+            Object.entries({ client_id: cfg.GOOGLE_CLIENT_ID, redirect_uri: oauthRedirect(url), response_type: 'code', scope: YT_SCOPES,
+                access_type: 'offline', prompt: 'consent', include_granted_scopes: 'true', state: estado }).forEach(([k, v]) => auth.searchParams.set(k, v));
+            return Response.redirect(auth.toString(), 302);
+        }
+        if (p === '/api/youtube/oauth/callback' && m === 'GET') {
+            const volver = (msg) => Response.redirect(`${url.origin}/plataforma.html?youtube=${encodeURIComponent(msg)}`, 302);
+            if (url.searchParams.get('error')) return volver('cancelado');
+            const [estado, caduca] = (await leerAjuste(DB, 'YT_OAUTH_STATE')).split(':');
+            await DB.prepare("DELETE FROM configuracion WHERE clave = 'YT_OAUTH_STATE'").run();
+            if (!estado || estado !== url.searchParams.get('state') || Date.now() > +caduca) return volver('error-estado');
+            try {
+                const d = await googleToken({ client_id: cfg.GOOGLE_CLIENT_ID, client_secret: cfg.GOOGLE_CLIENT_SECRET,
+                    code: url.searchParams.get('code'), redirect_uri: oauthRedirect(url), grant_type: 'authorization_code' });
+                if (!d.refresh_token) return volver('sin-refresh');
+                tokenYT = { token: d.access_token, caduca: Date.now() + (d.expires_in || 3600) * 1000 };
+                const ch = await ytAuth(d.access_token, 'GET', 'channels', { query: { part: 'snippet', mine: 'true' } });
+                await guardarAjuste(DB, 'YT_REFRESH_TOKEN', d.refresh_token, u.nombre);
+                await guardarAjuste(DB, 'YT_CANAL', JSON.stringify({ id: ch.items?.[0]?.id, titulo: ch.items?.[0]?.snippet?.title || '' }), u.nombre);
+                return volver('conectado');
+            } catch (e) { console.error(e); return volver('error'); }
+        }
+        if (p === '/api/youtube/estado' && m === 'GET') {
+            const canalYT = await leerAjuste(DB, 'YT_CANAL');
+            return enviar(200, { configurado: !!(cfg.GOOGLE_CLIENT_ID && cfg.GOOGLE_CLIENT_SECRET), redirect: oauthRedirect(url),
+                conectado: !!(await leerAjuste(DB, 'YT_REFRESH_TOKEN')), canal: canalYT ? JSON.parse(canalYT) : null });
+        }
+        if (p === '/api/youtube/desconectar' && m === 'POST') {
+            const refresh = await leerAjuste(DB, 'YT_REFRESH_TOKEN');
+            if (refresh) await fetch(`https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(refresh)}`, { method: 'POST' }).catch(() => {});
+            await DB.prepare("DELETE FROM configuracion WHERE clave IN ('YT_REFRESH_TOKEN', 'YT_CANAL')").run();
+            tokenYT = null;
+            return ok();
+        }
+        // El navegador sube el archivo directamente a Google (subida reanudable) con un token de corta duración:
+        // así el vídeo no pasa por el Worker (que limita el tamaño de las peticiones).
+        if (p === '/api/youtube/iniciar' && m === 'POST') {
+            const b = await leerJson(req);
+            await asegurarEsquema(DB);
+            const idea = await DB.prepare('SELECT * FROM ideas WHERE id = ?').bind(+b.ideaId).first();
+            if (!idea) throw new HttpError(404, 'Idea no encontrada');
+            return enviar(200, { token: await accesoYT(env, cfg), metadatos: metadatosYT(idea, b) });
+        }
+        if (p === '/api/youtube/finalizar' && m === 'POST') {
+            const fd = await req.formData();
+            const ideaId = +fd.get('ideaId'), videoId = String(fd.get('videoId') || '');
+            if (!/^[\w-]{6,20}$/.test(videoId)) throw new HttpError(400, 'ID de vídeo no válido');
+            const token = await accesoYT(env, cfg), avisos = [], hecho = [];
+            const miniatura = fd.get('miniatura');
+            if (miniatura && miniatura.size) {
+                if (miniatura.size > 2 * 1024 * 1024) avisos.push('Miniatura: supera 2 MB (límite de YouTube)');
+                else try {
+                    await ytAuth(token, 'POST', 'https://www.googleapis.com/upload/youtube/v3/thumbnails/set',
+                        { query: { videoId }, body: await miniatura.arrayBuffer(), tipo: miniatura.type || 'image/jpeg' });
+                    hecho.push('miniatura');
+                } catch (e) { avisos.push(`Miniatura: ${e.message} (el canal debe estar verificado por teléfono para miniaturas personalizadas)`); }
+            }
+            const srt = fd.get('subtitulos');
+            if (srt && srt.size) try {
+                const limite = 'yaicontenido' + hex(crypto.getRandomValues(new Uint8Array(8)));
+                const meta = JSON.stringify({ snippet: { videoId, language: 'es-ES', name: 'Español', isDraft: false } });
+                const cuerpo = new Blob([`--${limite}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n--${limite}\r\nContent-Type: application/octet-stream\r\n\r\n`,
+                    await srt.arrayBuffer(), `\r\n--${limite}--`]);
+                await ytAuth(token, 'POST', 'https://www.googleapis.com/upload/youtube/v3/captions',
+                    { query: { part: 'snippet', uploadType: 'multipart' }, body: cuerpo, tipo: `multipart/related; boundary=${limite}` });
+                hecho.push('subtítulos');
+            } catch (e) { avisos.push(`Subtítulos: ${e.message}`); }
+            const lista = String(fd.get('lista') || '').trim();
+            if (lista) try {
+                const listaId = await listaReproduccion(token, lista);
+                await ytAuth(token, 'POST', 'playlistItems', { query: { part: 'snippet' },
+                    json: { snippet: { playlistId: listaId, resourceId: { kind: 'youtube#video', videoId } } } });
+                hecho.push(`lista «${lista}»`);
+            } catch (e) { avisos.push(`Lista de reproducción: ${e.message}`); }
+            const v = await ytAuth(token, 'GET', 'videos', { query: { part: 'status', id: videoId } });
+            const st = v.items?.[0]?.status || {};
+            const datos = { videoId, url: `https://youtu.be/${videoId}`, privacidad: st.privacyStatus, publishAt: st.publishAt || null,
+                subido: new Date().toISOString(), por: u.nombre, hecho, avisos };
+            if (ideaId) {
+                await asegurarEsquema(DB);
+                await DB.prepare("UPDATE ideas SET youtube = ?, estado = 'Programado' WHERE id = ?").bind(JSON.stringify(datos), ideaId).run();
+            }
+            return enviar(200, datos);
+        }
     }
     if (p.startsWith('/api/fliki/')) {
         await asegurarEsquema(DB);
@@ -692,7 +880,7 @@ async function api(req, env, url, u) {
         // La lista no incluye el texto del guion (puede ser largo); se pide idea a idea.
         const { results } = await DB.prepare(`SELECT ${COLS_IDEA} FROM ideas ORDER BY creado_en DESC, id DESC`).all();
         return enviar(200, results.map((r) => ({ ...r, tiene_guion: !!r.tiene_guion, tiene_storyboard: !!r.tiene_storyboard,
-            fliki: r.fliki ? JSON.parse(r.fliki) : null })));
+            fliki: r.fliki ? JSON.parse(r.fliki) : null, youtube: r.youtube ? JSON.parse(r.youtube) : null })));
     }
     if (p === '/api/ideas' && m === 'POST') {
         const b = await leerJson(req);
@@ -709,6 +897,7 @@ async function api(req, env, url, u) {
             const idea = await DB.prepare('SELECT * FROM ideas WHERE id = ?').bind(+x[1]).first();
             if (!idea) throw new HttpError(404, 'Idea no encontrada');
             return enviar(200, { ...idea, storyboard: idea.storyboard ? JSON.parse(idea.storyboard) : null,
+                youtube: idea.youtube ? JSON.parse(idea.youtube) : null,
                 paquete: idea.paquete ? JSON.parse(idea.paquete) : null,
                 fliki: idea.fliki ? JSON.parse(idea.fliki) : null });
         }

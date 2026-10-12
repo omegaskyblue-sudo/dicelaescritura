@@ -168,6 +168,24 @@
     <input id="capSrt" type="file" accept=".srt,.vtt,text/plain">
     <div id="outCapitulos"></div>
 
+    <h3>Subir a YouTube y programar</h3>
+    <p class="hint">Sube el MP4 exportado con título, descripción, capítulos y etiquetas del paquete; añade miniatura,
+        subtítulos (.srt) y lista de reproducción, y lo programa a la fecha de la idea (hora de España).</p>
+    <div id="ytSubida">
+        <label>Vídeo (.mp4) <input id="ytVideo" type="file" accept="video/*"></label>
+        <label>Miniatura (opcional, ≤2 MB) <input id="ytMini" type="file" accept="image/jpeg,image/png"></label>
+        <label>Subtítulos .srt (opcional) <input id="ytSrt" type="file" accept=".srt,.vtt"></label>
+        <label>Título <input id="ytTitulo"></label>
+        <label>Lista de reproducción <input id="ytLista" placeholder="Nombre de la serie (se crea si no existe)"></label>
+        <label>Categoría <select id="ytCat"><option value="27">Educación</option><option value="22">Personas y blogs</option><option value="29">ONG y activismo</option></select></label>
+        <label>Publicar el (hora de España) <input id="ytFecha" type="datetime-local"></label>
+        <label><input id="ytProgramar" type="checkbox" checked> Programar (si no, se sube privado)</label>
+        <label><input id="ytSintetico" type="checkbox" checked> Declarar contenido alterado o sintético (voz e imágenes con IA)</label>
+        <button id="btnYtSubir">Subir a YouTube</button>
+        <progress id="ytProgreso" max="100" value="0" hidden></progress>
+        <div id="outYt"></div>
+    </div>
+
     <h3>Vídeo con Fliki por API (plan Premium)</h3>
     <p class="hint">Envía el guion a Fliki, que genera imágenes con IA, voz, subtítulos y música. Vídeos de hasta 10 minutos
         (~1.400 palabras, dentro del límite de 10.000 caracteres de la API). El estado se consulta como mucho una vez por minuto.</p>
@@ -278,6 +296,22 @@
         <p class="hint actual"></p>
         <button>Guardar</button>
     </form>
+    <h3>Canal de YouTube (subida automática)</h3>
+    <p class="hint">Google Cloud Console → Credenciales → Crear ID de cliente OAuth (Aplicación web). Añade como URI de
+        redireccionamiento autorizado: <code id="ytRedirect"></code></p>
+    <form class="ajuste" data-clave="GOOGLE_CLIENT_ID">
+        <label>ID de cliente OAuth <input autocomplete="off" placeholder="….apps.googleusercontent.com"></label>
+        <p class="hint actual"></p>
+        <button>Guardar</button>
+    </form>
+    <form class="ajuste" data-clave="GOOGLE_CLIENT_SECRET">
+        <label>Secreto de cliente <input type="password" autocomplete="off" placeholder="GOCSPX-…"></label>
+        <p class="hint actual"></p>
+        <button>Guardar</button>
+    </form>
+    <p id="ytConexion" class="hint"></p>
+    <button id="btnYtConectar">Conectar canal de YouTube</button>
+    <button id="btnYtDesconectar" class="copy" hidden>Desconectar</button>
     <h3>Fliki (vídeo)</h3>
     <form class="ajuste" data-clave="FLIKI_API_KEY">
         <label>Clave de API de Fliki <span class="hint">(app.fliki.ai/automation → Create Key → API; requiere plan Premium)</span>
@@ -303,5 +337,6 @@
 
 <script src="plataforma.js"></script>
 <script src="produccion.js"></script>
+<script src="youtube.js"></script>
 </body>
 </html>
