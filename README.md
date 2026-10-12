@@ -27,6 +27,7 @@ En GitHub Pages (`public/`) la web funciona en modo manual, sin login, YouTube n
    *Create* → nombre `yaicontenido` (ya creada; su ID está en `wrangler.jsonc`).
 2. **Crear las tablas**: en esa base de datos → *Console* → pega el contenido de
    `migrations/0001_inicial.sql` → *Execute*; repite con `migrations/0002_configuracion.sql`.
+   (Las columnas posteriores, como el guion de cada idea, las añade el Worker solo.)
 3. **Poner el ID** en `wrangler.jsonc` (`database_id`) y subirlo al repositorio.
 4. **Crear el Worker**: *Workers & Pages* → *Create* → *Import a repository* → este repositorio y la rama.
    Comando de despliegue: `npx wrangler deploy` (el que propone por defecto).

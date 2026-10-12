@@ -280,6 +280,22 @@ async function probarClave(clave, valor, workspace) {
     if (clave === 'CLAUDE_MODEL' && !MODELOS.includes(valor)) throw new HttpError(400, 'Modelo no válido');
 }
 
+// ---------- Esquema ----------
+// Añade las columnas nuevas si la base de datos se creó con una versión anterior
+// (así no hace falta ejecutar migraciones a mano en la consola de D1).
+let esquemaListo = false;
+async function asegurarEsquema(DB) {
+    if (esquemaListo) return;
+    const { results } = await DB.prepare('PRAGMA table_info(ideas)').all();
+    const hay = new Set(results.map((c) => c.name));
+    const faltan = [
+        ['detalle', "TEXT NOT NULL DEFAULT ''"], ['guion', "TEXT NOT NULL DEFAULT ''"], ['guion_en', 'TEXT'],
+    ].filter(([col]) => !hay.has(col));
+    for (const [col, tipo] of faltan) await DB.prepare(`ALTER TABLE ideas ADD COLUMN ${col} ${tipo}`).run();
+    esquemaListo = true;
+}
+const COLS_IDEA = "id, titulo, nicho, estado, creado_por, creado_en, detalle, guion_en, length(guion) > 0 AS tiene_guion";
+
 // ---------- API con sesión ----------
 async function api(req, env, url, u) {
     const p = url.pathname, m = req.method, DB = env.DB;
@@ -345,19 +361,36 @@ async function api(req, env, url, u) {
         await cambiarPassword(env, u.nombre, (await leerJson(req)).password, leerCookie(req)); return ok();
     }
 
+    if (p.startsWith('/api/ideas')) await asegurarEsquema(DB);
     if (p === '/api/ideas' && m === 'GET') {
-        return enviar(200, (await DB.prepare('SELECT * FROM ideas ORDER BY creado_en DESC, id DESC').all()).results);
+        // La lista no incluye el texto del guion (puede ser largo); se pide idea a idea.
+        const { results } = await DB.prepare(`SELECT ${COLS_IDEA} FROM ideas ORDER BY creado_en DESC, id DESC`).all();
+        return enviar(200, results.map((r) => ({ ...r, tiene_guion: !!r.tiene_guion })));
     }
     if (p === '/api/ideas' && m === 'POST') {
         const b = await leerJson(req);
         if (!String(b.titulo || '').trim()) throw new HttpError(400, 'Falta el título');
-        const idea = await DB.prepare('INSERT INTO ideas (titulo, nicho, creado_por) VALUES (?, ?, ?) RETURNING *')
-            .bind(String(b.titulo).slice(0, 300), String(b.nicho || '').slice(0, 100), u.nombre).first();
-        return enviar(201, idea);
+        const idea = await DB.prepare(`INSERT INTO ideas (titulo, nicho, detalle, creado_por) VALUES (?, ?, ?, ?) RETURNING ${COLS_IDEA}`)
+            .bind(String(b.titulo).slice(0, 300), String(b.nicho || '').slice(0, 100), String(b.detalle || '').slice(0, 5000), u.nombre).first();
+        return enviar(201, { ...idea, tiene_guion: false });
     }
     if ((x = p.match(/^\/api\/ideas\/(\d+)$/))) {
+        if (m === 'GET') {
+            const idea = await DB.prepare('SELECT * FROM ideas WHERE id = ?').bind(+x[1]).first();
+            if (!idea) throw new HttpError(404, 'Idea no encontrada');
+            return enviar(200, idea);
+        }
         if (m === 'PATCH') {
-            await DB.prepare('UPDATE ideas SET estado = ? WHERE id = ?').bind(String((await leerJson(req)).estado).slice(0, 30), +x[1]).run();
+            // Actualiza solo los campos enviados: estado, detalle y/o guion.
+            const b = await leerJson(req), sets = [], vals = [];
+            if (b.estado != null) { sets.push('estado = ?'); vals.push(String(b.estado).slice(0, 30)); }
+            if (b.detalle != null) { sets.push('detalle = ?'); vals.push(String(b.detalle).slice(0, 5000)); }
+            if (b.guion != null) {
+                sets.push('guion = ?', "guion_en = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')");
+                vals.push(String(b.guion).slice(0, 300000));
+            }
+            if (!sets.length) throw new HttpError(400, 'Nada que actualizar');
+            await DB.prepare(`UPDATE ideas SET ${sets.join(', ')} WHERE id = ?`).bind(...vals, +x[1]).run();
             return ok();
         }
         if (m === 'DELETE') { await DB.prepare('DELETE FROM ideas WHERE id = ?').bind(+x[1]).run(); return ok(); }

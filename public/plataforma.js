@@ -111,7 +111,7 @@ const json = (method, body) => ({ method, headers: { 'Content-Type': 'applicatio
 let pipeline = store.get('ef_pipeline', []);
 const ESTADOS = ['Idea', 'Guion', 'Edición', 'Publicado', 'Descartada'];
 function pintarPipeline() {
-    $('pipeline').innerHTML = pipeline.map((p, i) => `<li><span>${esc(p.titulo)} <small class="hint">· ${esc(p.nicho)}${
+    $('pipeline').innerHTML = pipeline.map((p, i) => `<li><span>${p.tiene_guion || p.guion ? '<span title="Tiene guion guardado">📄</span> ' : ''}${esc(p.titulo)} <small class="hint">· ${esc(p.nicho)}${
         p.creado_por ? ' · ' + esc(p.creado_por) : ''}</small></span>
         <button class="mini" data-guion="${i}">Guion</button>
         <select data-i="${i}">${ESTADOS.map((e) => `<option${e === p.estado ? ' selected' : ''}>${e}</option>`).join('')}</select>
@@ -123,8 +123,8 @@ function pintarPipeline() {
     if (previo && pipeline[+previo]) sel.value = previo;
 }
 
-async function crearIdea(titulo, nicho, estado = 'Idea') {
-    const idea = { titulo, nicho, estado, fecha: new Date().toISOString().slice(0, 10) };
+async function crearIdea(titulo, nicho, estado = 'Idea', detalle = '') {
+    const idea = { titulo, nicho, estado, detalle, fecha: new Date().toISOString().slice(0, 10) };
     if (MODO_DB) {
         const creada = await api('/api/ideas', json('POST', idea));
         if (estado !== 'Idea') await api(`/api/ideas/${creada.id}`, json('PATCH', { estado }));
@@ -141,11 +141,23 @@ async function cambiarEstado(idea, estado) {
     else store.set('ef_pipeline', pipeline);
     pintarPipeline();
 }
+// Guarda el guion en la idea (y opcionalmente cambia su estado).
+async function guardarGuion(idea, guion, estado) {
+    if (MODO_DB && idea.id) await api(`/api/ideas/${idea.id}`, json('PATCH', { guion, ...(estado && { estado }) }));
+    idea.guion = guion;
+    idea.tiene_guion = !!guion;
+    if (estado) idea.estado = estado;
+    if (!MODO_DB) store.set('ef_pipeline', pipeline);
+    pintarPipeline();
+}
 const fallo = (e) => alert(e.message);
 $('pipeline').addEventListener('change', (e) => cambiarEstado(pipeline[e.target.dataset.i], e.target.value));
 $('pipeline').addEventListener('click', async (e) => {
     if (e.target.dataset.guion != null) {
         const idea = pipeline[+e.target.dataset.guion];
+        try {
+            if (MODO_DB && idea.id) Object.assign(idea, await api(`/api/ideas/${idea.id}`)); // trae detalle y guion
+        } catch (err) { return fallo(err); }
         return irAGuion({ titulo: idea.titulo, detalle: idea.detalle || '', idea });
     }
     if (e.target.dataset.del == null) return;
@@ -179,12 +191,10 @@ $('propuestas').addEventListener('click', async (e) => {
         let idea = pipeline.find((x) => x.titulo === p.titulo);
         if (guardar != null) {
             if (idea) return alert('Ya está en el pipeline.');
-            idea = await crearIdea(p.titulo, $('ideaNicho').value);
-            idea.detalle = p.detalle;
+            idea = await crearIdea(p.titulo, $('ideaNicho').value, 'Idea', p.detalle);
             e.target.textContent = 'Guardada ✓'; e.target.disabled = true;
         } else {
-            idea ||= await crearIdea(p.titulo, $('ideaNicho').value, 'Guion');
-            idea.detalle = p.detalle;
+            idea ||= await crearIdea(p.titulo, $('ideaNicho').value, 'Guion', p.detalle);
             irAGuion({ titulo: p.titulo, detalle: p.detalle, idea });
         }
     } catch (err) { fallo(err); }
@@ -197,9 +207,17 @@ function irAGuion({ titulo, detalle, idea }) {
     $('gTema').value = titulo;
     $('gAngulo').value = detalle || '';
     ideaEnGuion = idea || null;
-    $('gIdeaVinculada').textContent = idea ? `Vinculado a la idea del pipeline «${idea.titulo}»: pasará a «Edición» cuando Claude termine el guion.` : '';
+    $('gIdeaVinculada').textContent = !idea ? ''
+        : idea.guion ? `Idea «${idea.titulo}»: guion guardado el ${new Date(idea.guion_en || Date.now()).toLocaleString('es')}. Puedes revisarlo, editarlo y volver a guardarlo.`
+        : `Vinculado a la idea «${idea.titulo}»: el guion que escriba Claude se guardará en ella y pasará a «Edición».`;
+    $('btnGuardarGuion').hidden = !idea;
     if (idea && idea.estado === 'Idea') cambiarEstado(idea, 'Guion');
-    $('iaGuion').hidden = true;
+    // Si ya tiene guion, se muestra; si no, se prepara el prompt para escribirlo.
+    $('iaGuion').hidden = !idea?.guion;
+    $('iaGuion').textContent = idea?.guion || '';
+    $('gTexto').value = idea?.guion || '';
+    $('outRevision').innerHTML = '';
+    if (idea?.guion) $('btnRevisar').click();
     $('btnGuionPrompt').click();
     irA('guion');
 }
@@ -409,10 +427,25 @@ document.querySelectorAll('button.ia').forEach((b) => b.addEventListener('click'
         const r = await api('/api/claude', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt, web }) });
         out.textContent = r.texto + (r.truncado ? '\n\n[Respuesta cortada por longitud]' : '');
         if (b.dataset.out === 'iaIdea') mostrarPropuestas(r.texto);
-        if (b.dataset.out === 'iaGuion' && ideaEnGuion) cambiarEstado(ideaEnGuion, 'Edición');
+        if (b.dataset.out === 'iaGuion' && ideaEnGuion) {
+            await guardarGuion(ideaEnGuion, r.texto, ideaEnGuion.estado === 'Guion' || ideaEnGuion.estado === 'Idea' ? 'Edición' : undefined)
+                .then(() => { $('gIdeaVinculada').textContent = `Guion guardado en la idea «${ideaEnGuion.titulo}».`; })
+                .catch((err) => fallo(new Error('El guion se generó pero no se pudo guardar: ' + err.message)));
+        }
     } catch (e) { out.textContent = '⚠ ' + e.message; }
     finally { b.disabled = false; b.textContent = txt; }
 }));
+
+// Guarda en la idea el texto del revisor (la versión editada) o, si está vacío, el de Claude.
+$('btnGuardarGuion').addEventListener('click', async () => {
+    if (!ideaEnGuion) return;
+    const texto = $('gTexto').value.trim() || $('iaGuion').textContent.trim();
+    if (!texto) return alert('No hay guion que guardar.');
+    try {
+        await guardarGuion(ideaEnGuion, texto);
+        $('gIdeaVinculada').textContent = `Guion guardado en la idea «${ideaEnGuion.titulo}».`;
+    } catch (err) { fallo(err); }
+});
 
 $('btnAlRevisor').addEventListener('click', () => { $('gTexto').value = $('iaGuion').textContent; $('btnRevisar').click(); });
 
