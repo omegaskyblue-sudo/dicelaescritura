@@ -55,7 +55,7 @@ const PALANCAS = {
     mercado: 'Adapta la idea al mercado {mercado}: conserva solo lo que también interese a esa audiencia, cambia ejemplos, referencias y perspectiva culturales. Indica si hay demanda real en ambos mercados.',
     subnicho: 'Traslada la idea al subnicho "{nicho}" manteniendo el gancho que la hizo viral.',
     inverso: 'Aplica la técnica del título inverso: reordena y recombina las palabras clave para crear títulos nuevos con un ángulo diferente.',
-    patron: 'Combina los patrones de mis ideas ganadoras con temas de actualidad de esta semana.',
+    patron: 'Busca en internet qué temas relacionados con el nicho están en tendencia esta semana y conecta cada propuesta con uno de ellos (indica la fuente). {ganadoras}',
 };
 
 $('btnIdea').addEventListener('click', () => {
@@ -63,8 +63,13 @@ $('btnIdea').addEventListener('click', () => {
     const nicho = $('ideaNicho').value || 'mi nicho';
     const mercado = $('ideaMercado').value || 'hispanohablante';
     const pal = [...document.querySelectorAll('#ideas fieldset input:checked')].map((c) =>
-        '- ' + PALANCAS[c.value].replace('{mercado}', mercado).replace('{nicho}', nicho));
+        '- ' + PALANCAS[c.value].replace('{mercado}', mercado).replace('{nicho}', nicho)
+            .replace('{ganadoras}', $('ideaGanadoras').value.trim()
+                ? 'Combínalos con los patrones de mis ideas ganadoras (más abajo).'
+                : 'Combínalos con los patrones que explican por qué el referente se hizo viral.'));
     const gan = $('ideaGanadoras').value.trim();
+    // La palanca de tendencia necesita búsqueda en internet: se activa sola.
+    if (document.querySelector('#ideas fieldset input[value=patron]').checked) $('webIdea').checked = true;
     $('outIdea').textContent =
 `Actúa como estratega de contenido para un canal de YouTube del nicho "${nicho}" dirigido al público ${mercado}.
 
@@ -74,6 +79,7 @@ Objetivo: no copiar, sino MEJORAR la idea aportando un valor diferencial claro y
 Aplica estas palancas:
 ${pal.join('\n') || '- (elige al menos una palanca)'}
 ${gan ? `\nMis ideas ganadoras (patrones que ya funcionan en mi canal):\n${gan}\n` : ''}
+Si te falta algún dato, no lo pidas: trabaja con supuestos razonables y menciónalos en una línea al final.
 Devuélveme 10 propuestas. Para cada una: título (máx. 60 caracteres), ángulo único en una frase, qué aporta que el referente no tiene, y concepto de miniatura (máx. 4 palabras de texto).`;
 });
 
@@ -257,7 +263,9 @@ document.querySelectorAll('button.ia').forEach((b) => b.addEventListener('click'
     b.disabled = true; b.textContent = 'Claude está escribiendo…';
     out.hidden = false; out.textContent = '…';
     try {
-        const r = await api('/api/claude', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt }) });
+        const web = !!$(b.dataset.web)?.checked;
+        if (web) b.textContent = 'Claude está investigando y escribiendo…';
+        const r = await api('/api/claude', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt, web }) });
         out.textContent = r.texto + (r.truncado ? '\n\n[Respuesta cortada por longitud]' : '');
     } catch (e) { out.textContent = '⚠ ' + e.message; }
     finally { b.disabled = false; b.textContent = txt; }

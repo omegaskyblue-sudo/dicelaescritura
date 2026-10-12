@@ -181,25 +181,36 @@ async function canal(env, q) {
 // ---------- Claude ----------
 const SISTEMA = `Eres el asistente de estrategia y guion de un estudio de canales de YouTube faceless en español.
 Priorizas contenido original que aporte valor real a la audiencia: investigación propia, un ángulo diferencial y datos verificables.
-No inventes cifras ni fuentes; si un dato es incierto, márcalo como [VERIFICAR]. Responde en español.`;
+No inventes cifras ni fuentes; si un dato es incierto, márcalo como [VERIFICAR]. Responde en español.
+No hagas preguntas ni pidas datos antes de responder: entrega siempre el resultado completo. Si falta información,
+trabaja con supuestos razonables y menciónalos brevemente al final.
+Si tienes la herramienta de búsqueda web, úsala para tendencias actuales y para verificar datos, y cita las fuentes.`;
 
-async function claude(env, prompt) {
+async function claude(env, prompt, web) {
     if (!env.ANTHROPIC_API_KEY) throw new HttpError(503, 'Falta la clave de Claude (Configuración)');
     if (typeof prompt !== 'string' || !prompt.trim()) throw new HttpError(400, 'Prompt vacío');
     const anthropic = clienteClaude(env.ANTHROPIC_API_KEY, env.ANTHROPIC_AUTH, env.ANTHROPIC_WORKSPACE_ID);
-    const stream = anthropic.beta.messages.stream({
-        model: env.CLAUDE_MODEL || 'claude-opus-5-5',
-        max_tokens: 64000,
-        thinking: { type: 'adaptive' },
-        output_config: { effort: 'medium' },
-        betas: ['server-side-fallback-2026-07-01'],
-        fallbacks: 'default',
-        system: SISTEMA,
-        messages: [{ role: 'user', content: prompt.slice(0, 200000) }],
-    });
-    const msg = await stream.finalMessage();
+    const hoy = new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/Madrid' });
+    const messages = [{ role: 'user', content: `(Fecha de hoy: ${hoy})\n\n${prompt.slice(0, 200000)}` }];
+    let msg;
+    // Con búsqueda web, el servidor de Claude puede pausar el turno (pause_turn); se reanuda reenviando lo recibido.
+    for (let vuelta = 0; vuelta < 4; vuelta++) {
+        msg = await anthropic.beta.messages.stream({
+            model: env.CLAUDE_MODEL || 'claude-opus-5-5',
+            max_tokens: 64000,
+            thinking: { type: 'adaptive' },
+            output_config: { effort: 'medium' },
+            betas: ['server-side-fallback-2026-07-01'],
+            fallbacks: 'default',
+            system: SISTEMA,
+            ...(web && { tools: [{ type: 'web_search_20260209', name: 'web_search', max_uses: 8 }] }),
+            messages,
+        }).finalMessage();
+        if (msg.stop_reason !== 'pause_turn') break;
+        messages.push({ role: 'assistant', content: msg.content });
+    }
     if (msg.stop_reason === 'refusal') throw new HttpError(422, 'Claude ha rechazado la petición. Reformula el prompt.');
-    const texto = msg.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n');
+    const texto = msg.content.filter((b) => b.type === 'text').map((b) => b.text).join('');
     return { texto, truncado: msg.stop_reason === 'max_tokens', uso: msg.usage };
 }
 
@@ -285,7 +296,8 @@ async function api(req, env, url, u) {
         return enviar(200, await canal((await configuracion(env)).cfg, url.searchParams.get('q') || ''));
     }
     if (p === '/api/claude' && m === 'POST') {
-        return enviar(200, await claude((await configuracion(env)).cfg, (await leerJson(req)).prompt));
+        const { prompt, web } = await leerJson(req);
+        return enviar(200, await claude((await configuracion(env)).cfg, prompt, !!web));
     }
 
     if (p === '/api/configuracion') {

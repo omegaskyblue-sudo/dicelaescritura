@@ -70,7 +70,8 @@
     <button id="btnIdea">Generar prompt</button>
     <pre id="outIdea" class="out"></pre>
     <button class="copy" data-copy="outIdea">Copiar</button>
-    <button class="ia" data-prompt="outIdea" data-out="iaIdea">Enviar a Claude</button>
+    <label class="check"><input type="checkbox" id="webIdea"> Permitir a Claude buscar en internet (tendencias y datos actuales; tarda más y cuesta algo más)</label>
+    <button class="ia" data-prompt="outIdea" data-out="iaIdea" data-web="webIdea">Enviar a Claude</button>
     <div id="iaIdea" class="out ia-out" hidden></div>
     <button id="btnGuardarIdea">Guardar idea en el pipeline</button>
     <h3>Pipeline de ideas</h3>
@@ -94,7 +95,8 @@
     <button id="btnGuionPrompt">Generar prompt de guion</button>
     <pre id="outGuionPrompt" class="out"></pre>
     <button class="copy" data-copy="outGuionPrompt">Copiar</button>
-    <button class="ia" data-prompt="outGuionPrompt" data-out="iaGuion">Escribir con Claude</button>
+    <label class="check"><input type="checkbox" id="webGuion" checked> Permitir a Claude buscar en internet para verificar datos y fuentes</label>
+    <button class="ia" data-prompt="outGuionPrompt" data-out="iaGuion" data-web="webGuion">Escribir con Claude</button>
     <button id="btnAlRevisor" class="copy">Pasar al revisor</button>
     <div id="iaGuion" class="out ia-out" hidden></div>
 
