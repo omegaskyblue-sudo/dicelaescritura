@@ -5,7 +5,20 @@ const MAX_MIN = 10, PALABRAS_MIN = 140;
 const esShort = () => $('gFormato').value === 'short';
 const limiteMin = () => (esShort() ? 1 : MAX_MIN); // Short: 60 s como máximo
 const duracionTxt = (min) => (min < 2 ? `${Math.round(min * 60)} s` : `${min.toFixed(1)} min`);
-const minutosDe = (texto) => texto.replace(/\[VISUAL:[^\]]*\]/gi, '').split(/\s+/).filter(Boolean).length / PALABRAS_MIN;
+// Deja solo lo que se narra: quita marcas [VISUAL]/[VERIFICAR], títulos de bloque, separadores,
+// formato Markdown y las notas para el equipo que añaden algunos guiones al final.
+function soloNarracion(texto) {
+    return texto
+        .split(/^\s*\**\s*notas?\s+(para\s+el\s+equipo|de\s+producci[oó]n)\b/im)[0]
+        .replace(/\[(VISUAL|VERIFICAR)[^\]]*\]/gi, '')
+        .split('\n')
+        .filter((l) => !/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(l))                  // separadores
+        .filter((l) => !/^\s*(#{1,6}\s|\**\s*(BLOQUE|CIERRE|INTRO|GANCHO|PARTE)\b)/i.test(l)) // títulos de bloque
+        .map((l) => l.replace(/\*\*|__/g, '').replace(/(^|\s)\*(?=\S)|(?<=\S)\*(?=\s|$|[.,;:])/g, '$1').trim())
+        .filter(Boolean)
+        .join('\n');
+}
+const minutosDe = (texto) => soloNarracion(texto).split(/\s+/).filter(Boolean).length / PALABRAS_MIN;
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
@@ -575,7 +588,8 @@ function textoFliki() {
     if ($('fkEscenas').checked && storyboard?.escenas?.length) {
         return { lineas: storyboard.escenas.map((e) => e.narracion.replace(/\s+/g, ' ').trim()).filter(Boolean), porLineas: true };
     }
-    const guion = ($('gTexto').value.trim() || $('iaGuion').textContent.trim()).replace(/\[VISUAL:[^\]]*\]/gi, '');
+    const guion = soloNarracion($('gTexto').value.trim() || $('iaGuion').textContent.trim());
+    if (/\[VERIFICAR/i.test($('gTexto').value)) alert('Aviso: el guion tiene marcas [VERIFICAR]. Se quitan al enviarlo, pero comprueba esos datos antes de publicar.');
     return { lineas: guion.split(/\n+/).map((l) => l.trim()).filter(Boolean), porLineas: false };
 }
 let fkTimer = null;
