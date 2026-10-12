@@ -136,7 +136,13 @@
     <button id="btnStoryboard" class="ia">Crear storyboard con Claude</button>
     <div id="outStoryboard"></div>
 
-    <h3>Vídeo con Fliki</h3>
+    <h3>Paquete para Fliki (plan Standard, sin API)</h3>
+    <p class="hint">Todo lo necesario para crear el vídeo a mano en la web de Fliki: narración limpia, ajustes, personajes
+        (coherentes con el playbook del canal), guías visuales y los datos para publicar en YouTube. Se guarda en la idea.</p>
+    <button id="btnPaquete" class="ia">Preparar paquete con Claude</button>
+    <div id="outPaquete"></div>
+
+    <h3>Vídeo con Fliki por API (plan Premium)</h3>
     <p class="hint">Envía el guion a Fliki, que genera imágenes con IA, voz, subtítulos y música. Vídeos de hasta 10 minutos
         (~1.400 palabras, dentro del límite de 10.000 caracteres de la API). El estado se consulta como mucho una vez por minuto.</p>
     <div class="grid3">
@@ -193,6 +199,7 @@
     <label>Cómo hacer la intro <textarea data-pb="intro" rows="3"></textarea></label>
     <label>Estilo de miniaturas <textarea data-pb="miniaturas" rows="2"></textarea></label>
     <label>Estilo visual de las imágenes (para los prompts del storyboard) <input data-pb="estilo_imagen"></label>
+    <label>Personajes del canal (Fliki: «Nombre: descripción», uno por línea) <textarea data-pb="personajes" rows="4"></textarea></label>
     <label>Canales referentes <textarea data-pb="referentes" rows="2"></textarea></label>
     <label>Ideas ganadoras (patrones 20/80) <textarea data-pb="ganadoras" rows="3"></textarea></label>
     <label>Tutoriales (enlaces Loom por tarea) <textarea data-pb="tutoriales" rows="2"></textarea></label>

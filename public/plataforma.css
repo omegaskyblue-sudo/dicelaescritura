@@ -85,3 +85,6 @@ a.boton { display: inline-block; background: var(--accent); color: #fff; padding
 a.boton.gris { background: #555; }
 progress { width: 160px; vertical-align: middle; }
 #fkVozBloque audio { display: block; margin-top: 6px; width: 100%; max-width: 360px; }
+.lista-copiar { padding-left: 18px; }
+.lista-copiar li { margin: 4px 0; }
+#outPaquete textarea { font-size: .85rem; }

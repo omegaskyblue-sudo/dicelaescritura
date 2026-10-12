@@ -252,6 +252,7 @@ function irAGuion({ titulo, detalle, idea }) {
     if (idea?.guion) $('btnRevisar').click();
     pintarStoryboard(idea?.storyboard || null);
     pintarFliki(idea?.fliki || null);
+    pintarPaquete(idea?.paquete || null);
     $('btnGuionPrompt').click();
     irA('guion');
 }
@@ -569,6 +570,101 @@ $('btnStoryboard').addEventListener('click', async () => {
         pintarStoryboard(sb);
         if (ideaEnGuion) { ideaEnGuion.storyboard = sb; ideaEnGuion.tiene_storyboard = true; if (!MODO_DB) store.set('ef_pipeline', pipeline); }
     } catch (err) { $('outStoryboard').innerHTML = `<p class="error">⚠ ${esc(err.message)}</p>`; }
+    finally { b.disabled = false; b.textContent = txt; }
+});
+
+// ---------- Paquete para Fliki (manual, plan Standard) ----------
+let paquete = null;
+const narracionLimpia = () => soloNarracion($('gTexto').value.trim() || $('iaGuion').textContent.trim());
+function pintarPaquete(pq) {
+    paquete = pq;
+    if (!pq) { $('outPaquete').innerHTML = ''; return; }
+    const pb = playbooks[canalActivo()] || {};
+    const narr = narracionLimpia();
+    const min = minutosDe(narr);
+    const ajustes = [
+        ['Formato', esShort() ? 'Portrait 9:16 (Short)' : 'Landscape 16:9'],
+        ['Medios de escena', `Imágenes con IA · estilo ${FK_ESTILOS[$('fkEstilo').value] || 'Bíblico'}`],
+        ['Narrador', pb.voz || 'la voz del canal (guárdala en el playbook, campo «Voz»)'],
+        ['Crear escenas', 'Automático (o «por salto de línea» si aparece)'],
+        ['Personajes', 'pega las descripciones de abajo; si avisa de que el modelo no usa referencias, pulsa «Cambiar modelo»'],
+        ['Extras', 'efectos de sonido sí · pausas naturales sí · música 15–20 · sin clips de vídeo IA'],
+        ['Antes de generar', 'apunta tu saldo de créditos y pulsa «Revisar el guion visual»'],
+    ];
+    const lista = (arr) => arr.map((t, i) => `<li>${esc(t)} <button class="mini" data-cp="${i}">Copiar</button></li>`).join('');
+    $('outPaquete').innerHTML = `
+        <h4>1. Narración (${duracionTxt(min)} · ${narr.length.toLocaleString('es')} caracteres)</h4>
+        ${min > limiteMin() ? `<p class="error">Supera el máximo de ${esShort() ? '60 s' : MAX_MIN + ' min'}: recórtala antes.</p>` : ''}
+        <textarea id="pqNarr" rows="6" readonly>${esc(narr)}</textarea>
+        <button class="mini" data-copiar-id="pqNarr">Copiar narración</button>
+        <h4>2. Ajustes en Fliki</h4>
+        <table>${ajustes.map(([k, v]) => `<tr><td><b>${k}</b></td><td>${esc(v)}</td></tr>`).join('')}</table>
+        <h4>3. Guías visuales</h4>
+        <p>${pq.guias_visuales.map((g) => `<span class="tag ok">${esc(g)}</span>`).join(' ')}</p>
+        <h4>4. Personajes</h4>
+        <p class="hint">Fliki crea un personaje por cada nombre del guion y no deja borrarlos: los que solo se mencionan van descritos para que no protagonicen escenas.</p>
+        ${pq.personajes.map((c, i) => `<div class="propuesta"><b>${esc(c.nombre)}</b> ${c.aparece ? '' : '<span class="tag warn">solo se menciona</span>'}
+            <p>${esc(c.descripcion)}</p><button class="mini" data-pj="${i}">Copiar descripción</button></div>`).join('')}
+        <button class="mini" id="pqGuardarPj">Guardar personajes en el playbook</button>
+        <h4>5. Publicar en YouTube</h4>
+        <p><b>Títulos</b></p><ul class="lista-copiar" data-tipo="titulos">${lista(pq.titulos)}</ul>
+        <p><b>Descripción</b></p><textarea id="pqDesc" rows="5" readonly>${esc(pq.descripcion_youtube)}</textarea>
+        <button class="mini" data-copiar-id="pqDesc">Copiar descripción</button>
+        <p><b>Etiquetas</b></p><p class="hint">${esc(pq.etiquetas.join(', '))}</p>
+        <button class="mini" id="pqEtiquetas">Copiar etiquetas</button>
+        <p><button class="mini" id="pqDescargar">Descargar paquete (.txt)</button></p>`;
+}
+function textoPaquete() {
+    const pq = paquete;
+    return [`PAQUETE PARA FLIKI — ${$('gTema').value}`, '', '== NARRACIÓN ==', narracionLimpia(), '',
+        '== GUÍAS VISUALES ==', pq.guias_visuales.join(' · '), '',
+        '== PERSONAJES ==', ...pq.personajes.map((c) => `${c.nombre}${c.aparece ? '' : ' (solo se menciona)'}:\n${c.descripcion}\n`), '',
+        '== YOUTUBE ==', 'Títulos:', ...pq.titulos.map((t) => '- ' + t), '', 'Descripción:', pq.descripcion_youtube, '',
+        'Etiquetas:', pq.etiquetas.join(', ')].join('\n');
+}
+$('outPaquete').addEventListener('click', async (e) => {
+    const b = e.target, d = b.dataset;
+    if (d.copiarId) return copiar($(d.copiarId).value, b);
+    if (d.pj != null) return copiar(paquete.personajes[+d.pj].descripcion, b);
+    if (d.cp != null) return copiar(paquete[b.closest('ul').dataset.tipo][+d.cp], b);
+    if (b.id === 'pqEtiquetas') return copiar(paquete.etiquetas.join(', '), b);
+    if (b.id === 'pqDescargar') {
+        const a = Object.assign(document.createElement('a'), {
+            href: URL.createObjectURL(new Blob([textoPaquete()], { type: 'text/plain;charset=utf-8' })),
+            download: `paquete-${($('gTema').value || 'video').replace(/[^\w\sáéíóúñ-]/gi, '').trim().slice(0, 50) || 'video'}.txt`,
+        });
+        document.body.append(a); a.click(); a.remove();
+        return;
+    }
+    if (b.id === 'pqGuardarPj') {
+        const nombre = canalActivo();
+        if (!nombre) return alert('Elige arriba el «Canal activo» para guardar sus personajes.');
+        const pb = camposPb(playbooks[nombre]);
+        // Fusiona por nombre: los nuevos se añaden y los existentes se actualizan.
+        const mapa = new Map((pb.personajes || '').split('\n').filter((l) => l.includes(':'))
+            .map((l) => [l.slice(0, l.indexOf(':')).trim(), l.slice(l.indexOf(':') + 1).trim()]));
+        paquete.personajes.filter((c) => c.aparece).forEach((c) => mapa.set(c.nombre, c.descripcion));
+        pb.personajes = [...mapa].map(([k, v]) => `${k}: ${v}`).join('\n');
+        try { await guardarPlaybook(nombre, pb); alert(`Personajes guardados en el playbook de «${nombre}». Se reutilizarán en los próximos paquetes.`); }
+        catch (err) { fallo(err); }
+    }
+});
+$('btnPaquete').addEventListener('click', async () => {
+    const guion = $('gTexto').value.trim() || $('iaGuion').textContent.trim();
+    if (!guion || guion.startsWith('⚠')) return alert('Primero escribe o pega el guion.');
+    const b = $('btnPaquete'), txt = b.textContent;
+    b.disabled = true; b.textContent = 'Claude está preparando el paquete…';
+    $('outPaquete').innerHTML = '<p class="hint">Suele tardar menos de un minuto…</p>';
+    try {
+        const pb = playbooks[canalActivo()] || {};
+        const pq = await api('/api/paquete', json('POST', {
+            guion: soloNarracion(guion), titulo: $('gTema').value, canal: canalActivo(), short: esShort(),
+            estilo: $('sbEstilo').value || pb.estilo_imagen, personajesCanal: pb.personajes,
+            ideaId: MODO_DB ? ideaEnGuion?.id : undefined,
+        }));
+        if (ideaEnGuion) { ideaEnGuion.paquete = pq; if (!MODO_DB) store.set('ef_pipeline', pipeline); }
+        pintarPaquete(pq);
+    } catch (err) { $('outPaquete').innerHTML = `<p class="error">⚠ ${esc(err.message)}</p>`; }
     finally { b.disabled = false; b.textContent = txt; }
 });
 

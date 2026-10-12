@@ -381,6 +381,42 @@ async function estadoFliki(env, cfg, ideaId) {
     return est;
 }
 
+// ---------- Paquete para Fliki (uso manual, sin API) ----------
+const ESQUEMA_PAQUETE = obj({
+    personajes: {
+        type: 'array',
+        description: 'Personas o grupos nombrados en la narración que Fliki detectará como personajes',
+        items: obj({
+            nombre: str('Nombre tal como lo detectaría Fliki, en inglés (p. ej. "Pontius Pilate", "Women visiting the tomb")'),
+            aparece: { type: 'boolean', description: 'true si actúa en alguna escena; false si solo se le menciona o cita' },
+            descripcion: str('Descripción visual en inglés para pegar en Fliki'),
+        }),
+    },
+    guias_visuales: { type: 'array', items: { type: 'string' }, description: '3-5 etiquetas cortas en español para «Añadir guía visual»' },
+    titulos: { type: 'array', items: { type: 'string' }, description: '3 títulos de YouTube, máx. 70 caracteres, la frase que se busca al principio' },
+    descripcion_youtube: str('Descripción para YouTube en español: 2-3 frases, referencias citadas y 3 hashtags'),
+    etiquetas: { type: 'array', items: { type: 'string' }, description: '10-15 etiquetas de YouTube en español' },
+});
+
+function promptPaquete({ titulo, guion, canal, personajesCanal, estilo, short }) {
+    return `Prepara el material para producir este guion en Fliki (editor web) y publicarlo en YouTube.
+
+Título de trabajo: ${titulo || '(sin título)'}
+${canal ? `Canal: ${canal}\n` : ''}${estilo ? `Estilo visual del canal: ${estilo}\n` : ''}Formato: ${short ? 'YouTube Short vertical (≤ 60 s)' : 'vídeo largo horizontal (≤ 10 min)'}
+${personajesCanal ? `\nPersonajes ya definidos en el canal (REUTILIZA estas descripciones tal cual si el personaje aparece; así se mantiene la coherencia entre vídeos):\n${personajesCanal}\n` : ''}
+Reglas para los personajes (Fliki crea uno por cada persona o grupo nombrado en el guion y no deja borrarlos):
+- Incluye a TODAS las personas o grupos nombrados, también los que solo se citan (autores, emperadores, evangelistas).
+- Los que solo se mencionan o citan: represéntalos de forma que encaje con la cita y no protagonicen escenas (busto de mármol, escriba escribiendo visto de espaldas o de perfil, manuscrito…). Marca "aparece": false.
+- Grupos (mujeres, soldados, consejo…): descríbelos como grupo, con edades variadas.
+- Rigor histórico: ropa, armas y peinados de la época y el lugar; varones romanos del s. I afeitados; soldados auxiliares en Judea con cota de malla (lorica hamata); franjas púrpura en la túnica según el rango.
+- Nada de "visible pores" ni detalles que fuercen primeros planos de piel; expresión y luz incluidas.
+- Personajes sagrados (Jesús, María…): representación digna y respetuosa, sin halo salvo que el estilo lo pida; escenas de violencia o crucifixión solo como siluetas lejanas, sin sangre ni heridas.
+- Edades coherentes con el momento en que aparecen.
+
+Guion:
+${guion}`;
+}
+
 // ---------- Configuración (claves editables desde la web) ----------
 // Los valores guardados en D1 desde la pestaña Configuración tienen prioridad sobre
 // los secretos del Worker. Las claves nunca se devuelven al navegador, solo enmascaradas.
@@ -458,7 +494,7 @@ async function asegurarEsquema(DB) {
     const { results } = await DB.prepare('PRAGMA table_info(ideas)').all();
     const hay = new Set(results.map((c) => c.name));
     const faltan = [
-        ['detalle', "TEXT NOT NULL DEFAULT ''"], ['guion', "TEXT NOT NULL DEFAULT ''"], ['guion_en', 'TEXT'], ['storyboard', 'TEXT'], ['fliki', 'TEXT'],
+        ['detalle', "TEXT NOT NULL DEFAULT ''"], ['guion', "TEXT NOT NULL DEFAULT ''"], ['guion_en', 'TEXT'], ['storyboard', 'TEXT'], ['fliki', 'TEXT'], ['paquete', 'TEXT'],
     ].filter(([col]) => !hay.has(col));
     for (const [col, tipo] of faltan) await DB.prepare(`ALTER TABLE ideas ADD COLUMN ${col} ${tipo}`).run();
     esquemaListo = true;
@@ -489,6 +525,18 @@ async function api(req, env, url, u) {
         }
         if (p === '/api/fliki/video' && m === 'POST') return enviar(200, await crearVideoFliki(env, cfg, await leerJson(req), u));
         if (p === '/api/fliki/estado' && m === 'GET') return enviar(200, await estadoFliki(env, cfg, +url.searchParams.get('ideaId')));
+    }
+    if (p === '/api/paquete' && m === 'POST') {
+        const b = await leerJson(req);
+        if (!String(b.guion || '').trim()) throw new HttpError(400, 'No hay guion');
+        const r = await claude((await configuracion(env)).cfg, promptPaquete(b), false, ESQUEMA_PAQUETE);
+        let pq;
+        try { pq = JSON.parse(r.texto); } catch { throw new HttpError(502, 'Claude no devolvió un paquete válido; inténtalo de nuevo.'); }
+        if (b.ideaId) {
+            await asegurarEsquema(DB);
+            await DB.prepare('UPDATE ideas SET paquete = ? WHERE id = ?').bind(JSON.stringify(pq), +b.ideaId).run();
+        }
+        return enviar(200, pq);
     }
     if (p === '/api/storyboard' && m === 'POST') {
         const b = await leerJson(req);
@@ -573,6 +621,7 @@ async function api(req, env, url, u) {
             const idea = await DB.prepare('SELECT * FROM ideas WHERE id = ?').bind(+x[1]).first();
             if (!idea) throw new HttpError(404, 'Idea no encontrada');
             return enviar(200, { ...idea, storyboard: idea.storyboard ? JSON.parse(idea.storyboard) : null,
+                paquete: idea.paquete ? JSON.parse(idea.paquete) : null,
                 fliki: idea.fliki ? JSON.parse(idea.fliki) : null });
         }
         if (m === 'PATCH') {
