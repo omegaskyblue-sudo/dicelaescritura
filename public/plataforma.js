@@ -16,12 +16,15 @@ $('tabs').addEventListener('click', (e) => {
     $(t).classList.add('active');
 });
 
-document.querySelectorAll('button.copy').forEach((b) =>
+const irA = (tab) => document.querySelector(`[data-tab="${tab}"]`).click();
+
+document.querySelectorAll('button.copy[data-copy]').forEach((b) =>
     b.addEventListener('click', () => navigator.clipboard?.writeText($(b.dataset.copy).textContent)));
 
 // ---------- 1. Outliers + MRV ----------
 const median = (a) => { const s = [...a].sort((x, y) => x - y); const m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
 
+let outliers = [];
 $('btnOutliers').addEventListener('click', () => {
     const rows = $('refVideos').value.split('\n').map((l) => l.split('|').map((x) => x.trim()))
         .filter((r) => r.length >= 2 && !isNaN(parseFloat(r[1])))
@@ -38,14 +41,27 @@ $('btnOutliers').addEventListener('click', () => {
         r.score = (r.reciente ? 1 : 0) + (r.viral ? 1 : 0) + (r.mejorable ? 1 : 0);
     });
     rows.sort((a, b) => b.score - a.score || b.ratio - a.ratio);
+    outliers = rows;
 
     const tag = (ok, txt) => `<span class="tag ${ok ? 'ok' : 'bad'}">${txt}</span>`;
     const canalNota = isNaN(edadCanal) ? '' :
         `<div class="card">Canal ${edadCanal <= 90 ? 'reciente (≤ 3 meses): buena señal de nicho abierto' : 'con más de 3 meses: busca un mercado o subnicho donde aún no exista'}. Mediana: ${Math.round(med).toLocaleString('es')} vistas.</div>`;
-    $('outOutliers').innerHTML = canalNota + `<table><tr><th>Vídeo</th><th>Vistas</th><th>× mediana</th><th>MRV</th></tr>${
-        rows.map((r) => `<tr><td>${esc(r.titulo)}</td><td>${r.vistas.toLocaleString('es')}</td><td>${r.ratio.toFixed(1)}×</td><td>${
-            tag(r.mejorable, 'M')} ${tag(r.reciente, 'R')} ${tag(r.viral, 'V')}</td></tr>`).join('')}</table>
-        <p class="hint">M = dura &lt; 15 min (mejorable en duración; revisa también formato y contenido a mano) · R = ≤ 90 días · V = ≥ 3× la mediana. Las ideas con M+R+V salen arriba: llévalas a la pestaña Ideas.</p>`;
+    $('outOutliers').innerHTML = canalNota + `<table><tr><th>Vídeo</th><th>Vistas</th><th>× mediana</th><th>MRV</th><th></th></tr>${
+        rows.map((r, i) => `<tr><td>${esc(r.titulo)}</td><td>${r.vistas.toLocaleString('es')}</td><td>${r.ratio.toFixed(1)}×</td><td>${
+            tag(r.mejorable, 'M')} ${tag(r.reciente, 'R')} ${tag(r.viral, 'V')}</td>
+            <td><button class="mini" data-usar="${i}">Usar</button></td></tr>`).join('')}</table>
+        <p class="hint">M = dura &lt; 15 min (mejorable en duración; revisa también formato y contenido a mano) · R = ≤ 90 días · V = ≥ 3× la mediana. Las ideas con M+R+V salen arriba: pulsa «Usar» para llevarla a Ideas.</p>`;
+});
+
+// «Usar»: el vídeo pasa a Ideas como referente, con los demás éxitos del canal como contexto.
+$('outOutliers').addEventListener('click', (e) => {
+    const i = e.target.dataset.usar;
+    if (i == null) return;
+    const r = outliers[+i];
+    $('ideaRef').value = r.titulo;
+    $('ideaContexto').value = outliers.filter((o) => o !== r).sort((a, b) => b.ratio - a.ratio).slice(0, 5)
+        .map((o) => `${o.titulo} — ${o.vistas.toLocaleString('es')} vistas (${o.ratio.toFixed(1)}× la mediana)`).join('\n');
+    irA('ideas');
 });
 
 // ---------- 2. Ideas ----------
@@ -68,6 +84,8 @@ $('btnIdea').addEventListener('click', () => {
                 ? 'Combínalos con los patrones de mis ideas ganadoras (más abajo).'
                 : 'Combínalos con los patrones que explican por qué el referente se hizo viral.'));
     const gan = $('ideaGanadoras').value.trim();
+    const ctx = $('ideaContexto').value.trim();
+    const canalRef = $('refCanal').value.trim();
     // La palanca de tendencia necesita búsqueda en internet: se activa sola.
     if (document.querySelector('#ideas fieldset input[value=patron]').checked) $('webIdea').checked = true;
     $('outIdea').textContent =
@@ -78,9 +96,11 @@ Vídeo referente (reciente y viral): "${ref}"
 Objetivo: no copiar, sino MEJORAR la idea aportando un valor diferencial claro y original.
 Aplica estas palancas:
 ${pal.join('\n') || '- (elige al menos una palanca)'}
-${gan ? `\nMis ideas ganadoras (patrones que ya funcionan en mi canal):\n${gan}\n` : ''}
+${gan ? `\nMis ideas ganadoras (patrones que ya funcionan en mi canal):\n${gan}\n` : ''}${
+    ctx ? `\nOtros éxitos del canal referente${canalRef ? ` «${canalRef}»` : ''} (detecta qué tienen en común):\n${ctx}\n` : ''}
 Si te falta algún dato, no lo pidas: trabaja con supuestos razonables y menciónalos en una línea al final.
-Devuélveme 10 propuestas. Para cada una: título (máx. 60 caracteres), ángulo único en una frase, qué aporta que el referente no tiene, y concepto de miniatura (máx. 4 palabras de texto).`;
+Devuélveme 10 propuestas. Empieza cada una con una línea «## N. Título» (título de máx. 60 caracteres) y debajo, en líneas cortas:
+ángulo único en una frase, qué aporta que el referente no tiene, y concepto de miniatura (máx. 4 palabras de texto).`;
 });
 
 // Con base de datos (servidor con Postgres) el pipeline y los playbooks son compartidos por el equipo;
@@ -93,17 +113,41 @@ const ESTADOS = ['Idea', 'Guion', 'Edición', 'Publicado', 'Descartada'];
 function pintarPipeline() {
     $('pipeline').innerHTML = pipeline.map((p, i) => `<li><span>${esc(p.titulo)} <small class="hint">· ${esc(p.nicho)}${
         p.creado_por ? ' · ' + esc(p.creado_por) : ''}</small></span>
+        <button class="mini" data-guion="${i}">Guion</button>
         <select data-i="${i}">${ESTADOS.map((e) => `<option${e === p.estado ? ' selected' : ''}>${e}</option>`).join('')}</select>
         <button data-del="${i}" class="copy">✕</button></li>`).join('') || '<li class="hint">Vacío</li>';
+    // Selector de la pestaña Métricas
+    const sel = $('mIdea'), previo = sel.value;
+    sel.innerHTML = '<option value="">— sin vincular —</option>' + pipeline.map((p, i) =>
+        `<option value="${i}">${esc(p.titulo)} (${esc(p.estado)})</option>`).join('');
+    if (previo && pipeline[+previo]) sel.value = previo;
+}
+
+async function crearIdea(titulo, nicho, estado = 'Idea') {
+    const idea = { titulo, nicho, estado, fecha: new Date().toISOString().slice(0, 10) };
+    if (MODO_DB) {
+        const creada = await api('/api/ideas', json('POST', idea));
+        if (estado !== 'Idea') await api(`/api/ideas/${creada.id}`, json('PATCH', { estado }));
+        creada.estado = estado;
+        pipeline.unshift(creada);
+    } else { pipeline.unshift(idea); store.set('ef_pipeline', pipeline); }
+    pintarPipeline();
+    return pipeline[0];
+}
+async function cambiarEstado(idea, estado) {
+    if (!idea || idea.estado === estado) return;
+    idea.estado = estado;
+    if (MODO_DB && idea.id) await api(`/api/ideas/${idea.id}`, json('PATCH', { estado })).catch(fallo);
+    else store.set('ef_pipeline', pipeline);
+    pintarPipeline();
 }
 const fallo = (e) => alert(e.message);
-$('pipeline').addEventListener('change', async (e) => {
-    const p = pipeline[e.target.dataset.i];
-    p.estado = e.target.value;
-    if (MODO_DB) await api(`/api/ideas/${p.id}`, json('PATCH', { estado: p.estado })).catch(fallo);
-    else store.set('ef_pipeline', pipeline);
-});
+$('pipeline').addEventListener('change', (e) => cambiarEstado(pipeline[e.target.dataset.i], e.target.value));
 $('pipeline').addEventListener('click', async (e) => {
+    if (e.target.dataset.guion != null) {
+        const idea = pipeline[+e.target.dataset.guion];
+        return irAGuion({ titulo: idea.titulo, detalle: idea.detalle || '', idea });
+    }
     if (e.target.dataset.del == null) return;
     const [p] = pipeline.splice(+e.target.dataset.del, 1);
     if (MODO_DB) await api(`/api/ideas/${p.id}`, { method: 'DELETE' }).catch(fallo);
@@ -111,24 +155,67 @@ $('pipeline').addEventListener('click', async (e) => {
     pintarPipeline();
 });
 $('btnGuardarIdea').addEventListener('click', async () => {
-    const titulo = prompt('Título de la idea elegida:', $('ideaRef').value);
-    if (!titulo) return;
-    const idea = { titulo, nicho: $('ideaNicho').value, estado: 'Idea', fecha: new Date().toISOString().slice(0, 10) };
-    if (MODO_DB) {
-        try { pipeline.unshift(await api('/api/ideas', json('POST', idea))); } catch (e) { return fallo(e); }
-    } else { pipeline.push(idea); store.set('ef_pipeline', pipeline); }
-    pintarPipeline();
+    const titulo = prompt('Título de la idea:', $('ideaRef').value);
+    if (titulo) await crearIdea(titulo, $('ideaNicho').value).catch(fallo);
+});
+
+// D. Propuestas de Claude: cada «## N. Título» se convierte en una tarjeta con acciones.
+let propuestas = [];
+function mostrarPropuestas(texto) {
+    propuestas = texto.split(/^(?=#{1,4}\s*\d+\s*[.)])/m).filter((b) => /^#{1,4}\s*\d+/.test(b)).map((b) => {
+        const [cab, ...resto] = b.trim().split('\n');
+        return { titulo: cab.replace(/^#{1,4}\s*\d+\s*[.)]\s*/, '').replace(/\*\*|[«»"]/g, '').trim(), detalle: resto.join('\n').trim() };
+    });
+    $('propuestas').innerHTML = propuestas.length ? '<h3>Propuestas</h3>' + propuestas.map((p, i) => `<div class="propuesta">
+        <b>${esc(p.titulo)}</b><p>${esc(p.detalle)}</p>
+        <button class="mini" data-guardar="${i}">Guardar en pipeline</button>
+        <button class="mini ia" data-escribir="${i}">Escribir guion</button></div>`).join('') : '';
+}
+$('propuestas').addEventListener('click', async (e) => {
+    const { guardar, escribir } = e.target.dataset;
+    const p = propuestas[+(guardar ?? escribir)];
+    if (!p) return;
+    try {
+        let idea = pipeline.find((x) => x.titulo === p.titulo);
+        if (guardar != null) {
+            if (idea) return alert('Ya está en el pipeline.');
+            idea = await crearIdea(p.titulo, $('ideaNicho').value);
+            idea.detalle = p.detalle;
+            e.target.textContent = 'Guardada ✓'; e.target.disabled = true;
+        } else {
+            idea ||= await crearIdea(p.titulo, $('ideaNicho').value, 'Guion');
+            idea.detalle = p.detalle;
+            irAGuion({ titulo: p.titulo, detalle: p.detalle, idea });
+        }
+    } catch (err) { fallo(err); }
 });
 pintarPipeline();
 
 // ---------- 3. Guion ----------
+let ideaEnGuion = null; // idea del pipeline cuyo guion se está escribiendo
+function irAGuion({ titulo, detalle, idea }) {
+    $('gTema').value = titulo;
+    $('gAngulo').value = detalle || '';
+    ideaEnGuion = idea || null;
+    $('gIdeaVinculada').textContent = idea ? `Vinculado a la idea del pipeline «${idea.titulo}»: pasará a «Edición» cuando Claude termine el guion.` : '';
+    if (idea && idea.estado === 'Idea') cambiarEstado(idea, 'Guion');
+    $('iaGuion').hidden = true;
+    $('btnGuionPrompt').click();
+    irA('guion');
+}
+
 $('btnGuionPrompt').addEventListener('click', () => {
     const min = +$('gMin').value || 25;
+    const pb = playbooks[canalActivo()] || {};
+    const angulo = $('gAngulo').value.trim(), extra = $('gExtra').value.trim();
+    const canal = [pb.nicho && `nicho: ${pb.nicho}`, pb.formato && `formato visual: ${pb.formato}`, pb.voz && `voz: ${pb.voz}`].filter(Boolean).join(' · ');
     $('outGuionPrompt').textContent =
 `Escribe un guion de narración para YouTube sobre: "${$('gTema').value || '(tema)'}".
+${angulo ? `\nÁngulo y detalles de la idea:\n${angulo}\n` : ''}${canal ? `\nCanal (${canalActivo()}): ${canal}\n` : ''}
 Duración: ~${min} minutos (~${min * 140} palabras).
 
-Intro (primeros 30 segundos, objetivo 75 % de retención): ${$('gIntro').value}. Promete algo concreto que el vídeo cumplirá.
+Intro (primeros 30 segundos, objetivo 75 % de retención): ${$('gIntro').value}. Promete algo concreto que el vídeo cumplirá.${
+    pb.intro ? `\nCómo hacemos las intros en este canal: ${pb.intro}` : ''}
 
 Estilo — obligatorio:
 - Investigación y aportación propias: datos concretos, fuentes verificables, una tesis original. Nada de relleno.
@@ -137,7 +224,17 @@ Estilo — obligatorio:
 - Prohibidas las cadenas de negaciones del tipo "No con A, no con B, no con C, sino con…".
 - Evita las muletillas: "en definitiva", "sin duda", "cabe destacar", "en un mundo donde", "adentrémonos".
 - Bloques de 2–4 minutos, cada uno cierra con un gancho hacia el siguiente.
+${extra ? `\nInstrucciones propias del canal (tienen prioridad):\n${extra}\n` : ''}
 Devuelve solo el texto narrado, con marcas [VISUAL: …] para el editor.`;
+});
+
+$('btnGuardarEstilo').addEventListener('click', async () => {
+    const nombre = canalActivo();
+    if (!nombre) return alert('Elige arriba el «Canal activo» (o crea su playbook en la pestaña 5).');
+    try {
+        await guardarPlaybook(nombre, { ...camposPb(playbooks[nombre]), prompt: $('gExtra').value });
+        alert(`Instrucciones guardadas en el playbook de «${nombre}».`);
+    } catch (err) { fallo(err); }
 });
 
 const PATRONES = [
@@ -169,6 +266,23 @@ $('btnRevisar').addEventListener('click', () => {
 });
 
 // ---------- 4. Métricas ----------
+let ultimoDiag = null;
+$('mIdea').addEventListener('change', () => { $('btnGanadora').hidden = !($('mIdea').value && ultimoDiag); });
+$('btnGanadora').addEventListener('click', async () => {
+    const idea = pipeline[+$('mIdea').value], nombre = canalActivo();
+    if (!idea) return;
+    if (!nombre) return alert('Elige arriba el «Canal activo» para guardar la idea ganadora en su playbook.');
+    const d = ultimoDiag || {};
+    const linea = `${idea.titulo}${isNaN(d.ctr) ? '' : ` — CTR ${d.ctr}%`}${isNaN(d.ret) ? '' : `, retención ${d.ret.toFixed(0)}%`}`;
+    const pb = camposPb(playbooks[nombre]);
+    pb.ganadoras = [pb.ganadoras, linea].filter((x) => x && x.trim()).join('\n');
+    try {
+        await guardarPlaybook(nombre, pb);
+        $('ideaGanadoras').value = pb.ganadoras;
+        await cambiarEstado(idea, 'Publicado');
+        alert(`Añadida a las ideas ganadoras de «${nombre}». Se usará al generar nuevas ideas.`);
+    } catch (err) { fallo(err); }
+});
 $('btnDiag').addEventListener('click', () => {
     const v = (id) => parseFloat($(id).value);
     const ctr = v('mCtr'), ctrCanal = v('mCtrCanal'), dur = v('mDur'), avd = v('mAvd'), r30 = v('mR30'), imp = v('mImp');
@@ -197,36 +311,63 @@ $('btnDiag').addEventListener('click', () => {
         : 'Descarta esta idea y vuelve a la búsqueda MRV.';
     out.push(`<div class="card"><b>Veredicto:</b> ${veredicto}</div>`);
     $('outDiag').innerHTML = out.join('');
+    ultimoDiag = { ctr, ret, bueno: buenCtr && buenaRet };
+    $('btnGanadora').hidden = !$('mIdea').value;
 });
 
 // ---------- 5. Playbook ----------
 let playbooks = store.get('ef_playbooks', {});
-const pintarLista = () => { $('pbLista').innerHTML = Object.keys(playbooks).map((k) => `<option>${esc(k)}</option>`).join(''); };
+const CAMPOS_PB = [...document.querySelectorAll('[data-pb]')].map((el) => el.dataset.pb);
+const camposPb = (pb = {}) => Object.fromEntries(CAMPOS_PB.map((k) => [k, pb[k] ?? '']));
 const leerPb = () => Object.fromEntries([...document.querySelectorAll('[data-pb]')].map((el) => [el.dataset.pb, el.value]));
+const canalActivo = () => $('canalActivo').value;
+
+function pintarLista() {
+    const nombres = Object.keys(playbooks);
+    $('pbLista').innerHTML = nombres.map((k) => `<option>${esc(k)}</option>`).join('');
+    const sel = $('canalActivo'), previo = sel.value || store.get('ef_canal', '');
+    sel.innerHTML = '<option value="">— ninguno —</option>' + nombres.map((k) => `<option>${esc(k)}</option>`).join('');
+    if (playbooks[previo]) sel.value = previo;
+}
+async function guardarPlaybook(nombre, datos) {
+    if (MODO_DB) await api('/api/playbooks/' + encodeURIComponent(nombre), json('PUT', datos));
+    playbooks[nombre] = { ...datos, actualizado: new Date().toISOString() };
+    if (!MODO_DB) store.set('ef_playbooks', playbooks);
+    pintarLista();
+}
+function cargarPbEnFormulario(nombre) {
+    const pb = playbooks[nombre];
+    if (!pb) return;
+    $('pbCanal').value = nombre;
+    document.querySelectorAll('[data-pb]').forEach((el) => { el.value = pb[el.dataset.pb] ?? ''; });
+}
+// Al elegir canal activo, su playbook rellena Ideas, Guion y el formulario del Playbook.
+function aplicarCanal() {
+    const nombre = canalActivo();
+    const pb = playbooks[nombre];
+    if (!pb) return;
+    if (pb.nicho) $('ideaNicho').value = pb.nicho;
+    $('ideaGanadoras').value = pb.ganadoras || '';
+    $('gExtra').value = pb.prompt || '';
+    cargarPbEnFormulario(nombre);
+}
+const elegirCanal = (nombre) => { $('canalActivo').value = nombre; store.set('ef_canal', nombre); aplicarCanal(); };
+$('canalActivo').addEventListener('change', () => elegirCanal(canalActivo()));
 
 $('btnPbGuardar').addEventListener('click', async () => {
     const nombre = $('pbCanal').value.trim();
     if (!nombre) { alert('Ponle nombre al canal'); return; }
-    const datos = leerPb();
-    if (MODO_DB) {
-        try { await api('/api/playbooks/' + encodeURIComponent(nombre), json('PUT', datos)); } catch (e) { return fallo(e); }
-    }
-    playbooks[nombre] = { ...datos, actualizado: new Date().toISOString() };
-    if (!MODO_DB) store.set('ef_playbooks', playbooks);
-    pintarLista();
+    try { await guardarPlaybook(nombre, leerPb()); } catch (e) { return fallo(e); }
+    if (!canalActivo()) elegirCanal(nombre);
 });
-$('btnPbCargar').addEventListener('click', () => {
-    const pb = playbooks[$('pbLista').value];
-    if (!pb) return;
-    $('pbCanal').value = $('pbLista').value;
-    document.querySelectorAll('[data-pb]').forEach((el) => { el.value = pb[el.dataset.pb] ?? ''; });
-});
+$('btnPbCargar').addEventListener('click', () => cargarPbEnFormulario($('pbLista').value));
 $('btnPbExport').addEventListener('click', () => {
     const blob = new Blob([JSON.stringify({ playbooks, pipeline }, null, 2)], { type: 'application/json' });
     const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: 'yaicontenido.json' });
     a.click();
 });
 pintarLista();
+aplicarCanal();
 
 // ---------- Conexión con el servidor (YouTube + Claude) ----------
 async function api(ruta, opciones) {
@@ -267,6 +408,8 @@ document.querySelectorAll('button.ia').forEach((b) => b.addEventListener('click'
         if (web) b.textContent = 'Claude está investigando y escribiendo…';
         const r = await api('/api/claude', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt, web }) });
         out.textContent = r.texto + (r.truncado ? '\n\n[Respuesta cortada por longitud]' : '');
+        if (b.dataset.out === 'iaIdea') mostrarPropuestas(r.texto);
+        if (b.dataset.out === 'iaGuion' && ideaEnGuion) cambiarEstado(ideaEnGuion, 'Edición');
     } catch (e) { out.textContent = '⚠ ' + e.message; }
     finally { b.disabled = false; b.textContent = txt; }
 }));
@@ -281,7 +424,7 @@ async function activarEquipo(e) {
     if (e.admin) { $('tabEquipo').hidden = false; $('tabConfig').hidden = false; }
     try {
         [pipeline, playbooks] = await Promise.all([api('/api/ideas'), api('/api/playbooks')]);
-        pintarPipeline(); pintarLista();
+        pintarPipeline(); pintarLista(); aplicarCanal();
         if (e.admin) { pintarUsuarios(); pintarConfig(); }
     } catch (err) { fallo(err); }
 }

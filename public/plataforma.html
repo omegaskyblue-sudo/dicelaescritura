@@ -29,6 +29,12 @@
 </nav>
 
 <main>
+<div class="canal-activo">
+    <label>Canal activo
+        <select id="canalActivo"><option value="">— ninguno —</option></select></label>
+    <span class="hint">Rellena nicho, ideas ganadoras y estilo de guion con el playbook del canal.</span>
+</div>
+
 <!-- 1. REFERENTES -->
 <section id="referentes" class="panel active">
     <h2>Detector de outliers + factor MRV</h2>
@@ -67,13 +73,16 @@
     </fieldset>
     <label>Ideas ganadoras de tu canal (opcional, una por línea)
         <textarea id="ideaGanadoras" rows="3"></textarea></label>
+    <label>Otros éxitos del canal referente (se rellena al pulsar «Usar» en la pestaña 1)
+        <textarea id="ideaContexto" rows="3"></textarea></label>
     <button id="btnIdea">Generar prompt</button>
     <pre id="outIdea" class="out"></pre>
     <button class="copy" data-copy="outIdea">Copiar</button>
     <label class="check"><input type="checkbox" id="webIdea"> Permitir a Claude buscar en internet (tendencias y datos actuales; tarda más y cuesta algo más)</label>
     <button class="ia" data-prompt="outIdea" data-out="iaIdea" data-web="webIdea">Enviar a Claude</button>
     <div id="iaIdea" class="out ia-out" hidden></div>
-    <button id="btnGuardarIdea">Guardar idea en el pipeline</button>
+    <div id="propuestas"></div>
+    <button id="btnGuardarIdea">Guardar otra idea en el pipeline</button>
     <h3>Pipeline de ideas</h3>
     <ul id="pipeline"></ul>
 </section>
@@ -85,6 +94,7 @@
         <label>Tema <input id="gTema"></label>
         <label>Duración objetivo (min) <input id="gMin" type="number" value="25"></label>
     </div>
+    <label>Ángulo / detalles de la idea <textarea id="gAngulo" rows="3" placeholder="Se rellena al venir desde una propuesta"></textarea></label>
     <label>Tipo de intro
         <select id="gIntro">
             <option>Pregunta intrigante + promesa</option>
@@ -92,7 +102,11 @@
             <option>Dato sorprendente</option>
             <option>Contraste antes/ahora</option>
         </select></label>
+    <label>Instrucciones propias del canal (voz, estilo, estructura) <textarea id="gExtra" rows="3"
+        placeholder="Se carga del playbook del canal activo"></textarea></label>
     <button id="btnGuionPrompt">Generar prompt de guion</button>
+    <button id="btnGuardarEstilo" class="copy">Guardar instrucciones en el playbook</button>
+    <p id="gIdeaVinculada" class="hint"></p>
     <pre id="outGuionPrompt" class="out"></pre>
     <button class="copy" data-copy="outGuionPrompt">Copiar</button>
     <label class="check"><input type="checkbox" id="webGuion" checked> Permitir a Claude buscar en internet para verificar datos y fuentes</label>
@@ -110,6 +124,7 @@
 <!-- 4. METRICAS -->
 <section id="metricas" class="panel">
     <h2>Diagnóstico de vídeo: ¿sigo o lo dejo?</h2>
+    <label>Vídeo (del pipeline) <select id="mIdea"><option value="">— sin vincular —</option></select></label>
     <div class="grid3">
         <label>Impresiones <input id="mImp" type="number"></label>
         <label>CTR del vídeo (%) <input id="mCtr" type="number" step="0.1"></label>
@@ -120,6 +135,7 @@
     </div>
     <button id="btnDiag">Diagnosticar</button>
     <div id="outDiag"></div>
+    <button id="btnGanadora" hidden>Marcar como idea ganadora del canal</button>
 </section>
 
 <!-- 5. PLAYBOOK -->

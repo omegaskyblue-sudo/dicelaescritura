@@ -70,3 +70,10 @@ label.check input { width: auto; margin: 0; }
     table { font-size: .8rem; }
     th, td { padding: 5px 4px; }
 }
+.canal-activo { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 12px; }
+.canal-activo label { margin: 0; min-width: 220px; }
+.canal-activo .hint { margin: 0 0 8px; }
+.propuesta { border-left: 4px solid #6f42c1; padding: 8px 12px; margin-top: 10px; background: var(--card); border-radius: 4px; }
+.propuesta p { white-space: pre-wrap; font-size: .9rem; color: var(--muted); margin: 4px 0; }
+.propuesta button, #pipeline button.mini, td button.mini { margin: 4px 6px 0 0; padding: 4px 10px; font-size: .85rem; }
+td button.mini { margin: 0; }
