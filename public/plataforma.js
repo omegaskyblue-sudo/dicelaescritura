@@ -218,6 +218,7 @@ function irAGuion({ titulo, detalle, idea }) {
     $('gTexto').value = idea?.guion || '';
     $('outRevision').innerHTML = '';
     if (idea?.guion) $('btnRevisar').click();
+    pintarStoryboard(idea?.storyboard || null);
     $('btnGuionPrompt').click();
     irA('guion');
 }
@@ -250,8 +251,8 @@ $('btnGuardarEstilo').addEventListener('click', async () => {
     const nombre = canalActivo();
     if (!nombre) return alert('Elige arriba el «Canal activo» (o crea su playbook en la pestaña 5).');
     try {
-        await guardarPlaybook(nombre, { ...camposPb(playbooks[nombre]), prompt: $('gExtra').value });
-        alert(`Instrucciones guardadas en el playbook de «${nombre}».`);
+        await guardarPlaybook(nombre, { ...camposPb(playbooks[nombre]), prompt: $('gExtra').value, estilo_imagen: $('sbEstilo').value });
+        alert(`Instrucciones y estilo visual guardados en el playbook de «${nombre}».`);
     } catch (err) { fallo(err); }
 });
 
@@ -367,6 +368,7 @@ function aplicarCanal() {
     if (pb.nicho) $('ideaNicho').value = pb.nicho;
     $('ideaGanadoras').value = pb.ganadoras || '';
     $('gExtra').value = pb.prompt || '';
+    $('sbEstilo').value = pb.estilo_imagen || '';
     cargarPbEnFormulario(nombre);
 }
 const elegirCanal = (nombre) => { $('canalActivo').value = nombre; store.set('ef_canal', nombre); aplicarCanal(); };
@@ -415,7 +417,7 @@ $('btnYt').addEventListener('click', async () => {
     finally { b.disabled = false; b.textContent = 'Importar desde YouTube'; }
 });
 
-document.querySelectorAll('button.ia').forEach((b) => b.addEventListener('click', async () => {
+document.querySelectorAll('button.ia[data-prompt]').forEach((b) => b.addEventListener('click', async () => {
     const prompt = $(b.dataset.prompt).textContent.trim();
     if (!prompt) { alert('Genera primero el prompt.'); return; }
     const out = $(b.dataset.out), txt = b.textContent;
@@ -445,6 +447,65 @@ $('btnGuardarGuion').addEventListener('click', async () => {
         await guardarGuion(ideaEnGuion, texto);
         $('gIdeaVinculada').textContent = `Guion guardado en la idea «${ideaEnGuion.titulo}».`;
     } catch (err) { fallo(err); }
+});
+
+// ---------- Storyboard y miniaturas ----------
+let storyboard = null;
+const conEstilo = (prompt) => [prompt, storyboard?.estilo_visual || $('sbEstilo').value].filter(Boolean).join(', ');
+function pintarStoryboard(sb) {
+    storyboard = sb;
+    if (!sb) { $('outStoryboard').innerHTML = ''; return; }
+    const total = sb.escenas.reduce((a, e) => a + (e.duracion_s || 0), 0);
+    $('outStoryboard').innerHTML = `
+        <p class="hint">${sb.escenas.length} escenas · ~${total < 60 ? total + ' s' : Math.round(total / 60) + ' min'} · estilo: ${esc(sb.estilo_visual)}</p>
+        <button class="mini" id="sbCsv">Descargar CSV</button>
+        <button class="mini" id="sbTodos">Copiar todos los prompts</button>
+        <h4>Miniaturas</h4>
+        ${sb.miniaturas.map((m, i) => `<div class="propuesta"><b>«${esc(m.texto)}»</b><p>${esc(m.composicion)}</p>
+            <p><i>${esc(m.prompt_imagen)}</i></p><button class="mini" data-copiar="m${i}">Copiar prompt</button></div>`).join('')}
+        <h4>Escenas</h4>
+        ${sb.escenas.map((e, i) => `<div class="escena"><span class="tag ok">${e.n}</span> <small class="hint">${e.duracion_s}s · ${esc(e.camara)}</small>
+            <p>${esc(e.narracion)}</p><p class="prompt"><i>${esc(e.prompt_imagen)}</i></p>
+            <small class="hint">Archivo: ${esc(e.busqueda_archivo)}</small>
+            <button class="mini" data-copiar="e${i}">Copiar prompt</button></div>`).join('')}`;
+}
+const copiar = (t, boton) => navigator.clipboard?.writeText(t).then(() => {
+    const txt = boton.textContent; boton.textContent = 'Copiado ✓'; setTimeout(() => { boton.textContent = txt; }, 1200);
+});
+$('outStoryboard').addEventListener('click', (e) => {
+    const b = e.target, c = b.dataset.copiar;
+    if (c) {
+        const item = c[0] === 'm' ? storyboard.miniaturas[+c.slice(1)] : storyboard.escenas[+c.slice(1)];
+        return copiar(conEstilo(item.prompt_imagen), b);
+    }
+    if (b.id === 'sbTodos') return copiar(storyboard.escenas.map((x) => conEstilo(x.prompt_imagen)).join('\n'), b);
+    if (b.id === 'sbCsv') {
+        const celda = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+        const filas = [['escena', 'segundos', 'narracion', 'prompt_imagen', 'busqueda_archivo', 'camara'],
+            ...storyboard.escenas.map((x) => [x.n, x.duracion_s, x.narracion, conEstilo(x.prompt_imagen), x.busqueda_archivo, x.camara]),
+            [], ['miniatura', '', 'texto', 'prompt_imagen', 'composicion'],
+            ...storyboard.miniaturas.map((m, i) => [i + 1, '', m.texto, conEstilo(m.prompt_imagen), m.composicion])];
+        const blob = new Blob(['\ufeff' + filas.map((f) => f.map(celda).join(';')).join('\r\n')], { type: 'text/csv;charset=utf-8' });
+        const nombre = ($('gTema').value || 'storyboard').replace(/[^\w\sáéíóúñ-]/gi, '').trim().slice(0, 60) || 'storyboard';
+        const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `${nombre}.csv` });
+        document.body.append(a); a.click(); a.remove();
+    }
+});
+$('btnStoryboard').addEventListener('click', async () => {
+    const guion = $('gTexto').value.trim() || $('iaGuion').textContent.trim();
+    if (!guion || guion.startsWith('⚠')) return alert('Primero escribe o pega el guion (pestaña Guion).');
+    const b = $('btnStoryboard'), txt = b.textContent;
+    b.disabled = true; b.textContent = 'Claude está preparando el storyboard…';
+    $('outStoryboard').innerHTML = '<p class="hint">Puede tardar 1–3 minutos en un guion largo…</p>';
+    try {
+        const sb = await api('/api/storyboard', json('POST', {
+            guion, titulo: $('gTema').value, estilo: $('sbEstilo').value, canal: canalActivo(),
+            ideaId: MODO_DB ? ideaEnGuion?.id : undefined,
+        }));
+        pintarStoryboard(sb);
+        if (ideaEnGuion) { ideaEnGuion.storyboard = sb; ideaEnGuion.tiene_storyboard = true; if (!MODO_DB) store.set('ef_pipeline', pipeline); }
+    } catch (err) { $('outStoryboard').innerHTML = `<p class="error">⚠ ${esc(err.message)}</p>`; }
+    finally { b.disabled = false; b.textContent = txt; }
 });
 
 $('btnAlRevisor').addEventListener('click', () => { $('gTexto').value = $('iaGuion').textContent; $('btnRevisar').click(); });

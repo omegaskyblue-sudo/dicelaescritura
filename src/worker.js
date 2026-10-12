@@ -186,7 +186,7 @@ No hagas preguntas ni pidas datos antes de responder: entrega siempre el resulta
 trabaja con supuestos razonables y menciónalos brevemente al final.
 Si tienes la herramienta de búsqueda web, úsala para tendencias actuales y para verificar datos, y cita las fuentes.`;
 
-async function claude(env, prompt, web) {
+async function claude(env, prompt, web, formato) {
     if (!env.ANTHROPIC_API_KEY) throw new HttpError(503, 'Falta la clave de Claude (Configuración)');
     if (typeof prompt !== 'string' || !prompt.trim()) throw new HttpError(400, 'Prompt vacío');
     const anthropic = clienteClaude(env.ANTHROPIC_API_KEY, env.ANTHROPIC_AUTH, env.ANTHROPIC_WORKSPACE_ID);
@@ -199,7 +199,7 @@ async function claude(env, prompt, web) {
             model: env.CLAUDE_MODEL || 'claude-opus-5-5',
             max_tokens: 64000,
             thinking: { type: 'adaptive' },
-            output_config: { effort: 'medium' },
+            output_config: { effort: 'medium', ...(formato && { format: { type: 'json_schema', schema: formato } }) },
             betas: ['server-side-fallback-2026-07-01'],
             fallbacks: 'default',
             system: SISTEMA,
@@ -212,6 +212,48 @@ async function claude(env, prompt, web) {
     if (msg.stop_reason === 'refusal') throw new HttpError(422, 'Claude ha rechazado la petición. Reformula el prompt.');
     const texto = msg.content.filter((b) => b.type === 'text').map((b) => b.text).join('');
     return { texto, truncado: msg.stop_reason === 'max_tokens', uso: msg.usage };
+}
+
+// ---------- Storyboard y miniaturas ----------
+const obj = (properties) => ({ type: 'object', properties, required: Object.keys(properties), additionalProperties: false });
+const str = (description) => ({ type: 'string', description });
+const ESQUEMA_STORYBOARD = obj({
+    estilo_visual: str('Estilo visual común a todas las imágenes, en inglés, para añadir a cada prompt'),
+    escenas: {
+        type: 'array',
+        items: obj({
+            n: { type: 'integer' },
+            narracion: str('Fragmento literal del guion que cubre la escena'),
+            duracion_s: { type: 'integer', description: 'Duración aproximada en segundos' },
+            prompt_imagen: str('Prompt de imagen en inglés, concreto y visual, sin texto dentro de la imagen'),
+            busqueda_archivo: str('2-4 términos de búsqueda para vídeo de stock o arte de dominio público'),
+            camara: str('Movimiento para el editor: zoom lento, paneo, estático, etc.'),
+        }),
+    },
+    miniaturas: {
+        type: 'array',
+        items: obj({
+            texto: str('Texto de la miniatura, máximo 4 palabras, en español'),
+            composicion: str('Qué se ve y dónde va cada elemento, en español'),
+            prompt_imagen: str('Prompt en inglés para el fondo/imagen principal, sin texto'),
+        }),
+    },
+});
+
+function promptStoryboard({ titulo, guion, estilo, canal }) {
+    return `Convierte este guion de YouTube en un storyboard para el editor y propone miniaturas.
+
+Título: ${titulo || '(sin título)'}
+${canal ? `Canal: ${canal}\n` : ''}${estilo ? `Estilo visual del canal (respétalo en todos los prompts): ${estilo}\n` : ''}
+Reglas:
+- Divide TODO el guion, en orden y sin saltarte partes, en escenas de 6–12 segundos (≈ 15–30 palabras de narración cada una).
+- "narracion" es el texto literal del guion de esa escena (sin las marcas [VISUAL]; úsalas como pista visual).
+- "prompt_imagen" en inglés: sujeto, acción, entorno, luz y encuadre concretos; coherente con el estilo visual; nunca texto ni letras en la imagen; nada de personas reales identificables ni logotipos.
+- "busqueda_archivo": términos para Pexels/Pixabay o Wikimedia Commons (arte de dominio público si encaja).
+- Propón 4 miniaturas distintas: texto corto e impactante (≤ 4 palabras) que complemente al título sin repetirlo.
+
+Guion:
+${guion}`;
 }
 
 // ---------- Configuración (claves editables desde la web) ----------
@@ -289,12 +331,12 @@ async function asegurarEsquema(DB) {
     const { results } = await DB.prepare('PRAGMA table_info(ideas)').all();
     const hay = new Set(results.map((c) => c.name));
     const faltan = [
-        ['detalle', "TEXT NOT NULL DEFAULT ''"], ['guion', "TEXT NOT NULL DEFAULT ''"], ['guion_en', 'TEXT'],
+        ['detalle', "TEXT NOT NULL DEFAULT ''"], ['guion', "TEXT NOT NULL DEFAULT ''"], ['guion_en', 'TEXT'], ['storyboard', 'TEXT'],
     ].filter(([col]) => !hay.has(col));
     for (const [col, tipo] of faltan) await DB.prepare(`ALTER TABLE ideas ADD COLUMN ${col} ${tipo}`).run();
     esquemaListo = true;
 }
-const COLS_IDEA = "id, titulo, nicho, estado, creado_por, creado_en, detalle, guion_en, length(guion) > 0 AS tiene_guion";
+const COLS_IDEA = "id, titulo, nicho, estado, creado_por, creado_en, detalle, guion_en, length(guion) > 0 AS tiene_guion, storyboard IS NOT NULL AS tiene_storyboard";
 
 // ---------- API con sesión ----------
 async function api(req, env, url, u) {
@@ -310,6 +352,19 @@ async function api(req, env, url, u) {
     }
     if (p === '/api/youtube/canal' && m === 'GET') {
         return enviar(200, await canal((await configuracion(env)).cfg, url.searchParams.get('q') || ''));
+    }
+    if (p === '/api/storyboard' && m === 'POST') {
+        const b = await leerJson(req);
+        if (!String(b.guion || '').trim()) throw new HttpError(400, 'No hay guion para el storyboard');
+        const r = await claude((await configuracion(env)).cfg, promptStoryboard(b), false, ESQUEMA_STORYBOARD);
+        if (r.truncado) throw new HttpError(422, 'El guion es demasiado largo para un solo storyboard; divídelo en partes.');
+        let sb;
+        try { sb = JSON.parse(r.texto); } catch { throw new HttpError(502, 'Claude no devolvió un storyboard válido; inténtalo de nuevo.'); }
+        if (b.ideaId) {
+            await asegurarEsquema(DB);
+            await DB.prepare('UPDATE ideas SET storyboard = ? WHERE id = ?').bind(JSON.stringify(sb), +b.ideaId).run();
+        }
+        return enviar(200, sb);
     }
     if (p === '/api/claude' && m === 'POST') {
         const { prompt, web } = await leerJson(req);
@@ -365,7 +420,7 @@ async function api(req, env, url, u) {
     if (p === '/api/ideas' && m === 'GET') {
         // La lista no incluye el texto del guion (puede ser largo); se pide idea a idea.
         const { results } = await DB.prepare(`SELECT ${COLS_IDEA} FROM ideas ORDER BY creado_en DESC, id DESC`).all();
-        return enviar(200, results.map((r) => ({ ...r, tiene_guion: !!r.tiene_guion })));
+        return enviar(200, results.map((r) => ({ ...r, tiene_guion: !!r.tiene_guion, tiene_storyboard: !!r.tiene_storyboard })));
     }
     if (p === '/api/ideas' && m === 'POST') {
         const b = await leerJson(req);
@@ -378,7 +433,7 @@ async function api(req, env, url, u) {
         if (m === 'GET') {
             const idea = await DB.prepare('SELECT * FROM ideas WHERE id = ?').bind(+x[1]).first();
             if (!idea) throw new HttpError(404, 'Idea no encontrada');
-            return enviar(200, idea);
+            return enviar(200, { ...idea, storyboard: idea.storyboard ? JSON.parse(idea.storyboard) : null });
         }
         if (m === 'PATCH') {
             // Actualiza solo los campos enviados: estado, detalle y/o guion.

@@ -105,7 +105,7 @@
     <label>Instrucciones propias del canal (voz, estilo, estructura) <textarea id="gExtra" rows="3"
         placeholder="Se carga del playbook del canal activo"></textarea></label>
     <button id="btnGuionPrompt">Generar prompt de guion</button>
-    <button id="btnGuardarEstilo" class="copy">Guardar instrucciones en el playbook</button>
+    <button id="btnGuardarEstilo" class="copy">Guardar instrucciones y estilo en el playbook</button>
     <p id="gIdeaVinculada" class="hint"></p>
     <pre id="outGuionPrompt" class="out"></pre>
     <button class="copy" data-copy="outGuionPrompt">Copiar</button>
@@ -120,6 +120,14 @@
     <button id="btnRevisar">Revisar</button>
     <button id="btnGuardarGuion" hidden>Guardar guion en la idea</button>
     <div id="outRevision"></div>
+
+    <h3>Storyboard y miniaturas</h3>
+    <p class="hint">Claude divide el guion (el del revisor o, si está vacío, el último que escribió) en escenas de 6–12 s, cada una con su
+        prompt de imagen, búsqueda de archivo y movimiento de cámara, y propone 4 miniaturas. Se guarda en la idea.</p>
+    <label>Estilo visual para todas las imágenes (en inglés funciona mejor)
+        <input id="sbEstilo" placeholder="e.g. classical oil painting, chiaroscuro, warm candlelight, cinematic 16:9"></label>
+    <button id="btnStoryboard" class="ia">Crear storyboard con Claude</button>
+    <div id="outStoryboard"></div>
 </section>
 
 <!-- 4. METRICAS -->
@@ -153,6 +161,7 @@
     <label>Prompt de guion vigente <textarea data-pb="prompt" rows="4"></textarea></label>
     <label>Cómo hacer la intro <textarea data-pb="intro" rows="3"></textarea></label>
     <label>Estilo de miniaturas <textarea data-pb="miniaturas" rows="2"></textarea></label>
+    <label>Estilo visual de las imágenes (para los prompts del storyboard) <input data-pb="estilo_imagen"></label>
     <label>Canales referentes <textarea data-pb="referentes" rows="2"></textarea></label>
     <label>Ideas ganadoras (patrones 20/80) <textarea data-pb="ganadoras" rows="3"></textarea></label>
     <label>Tutoriales (enlaces Loom por tarea) <textarea data-pb="tutoriales" rows="2"></textarea></label>
