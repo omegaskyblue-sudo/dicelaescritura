@@ -256,11 +256,133 @@ Guion:
 ${guion}`;
 }
 
+// ---------- Fliki (vídeo) ----------
+// Límite de Fliki: 10 peticiones cada 10 minutos por clave (cuentan todas, también el estado),
+// por eso el estado de cada idea se consulta como mucho una vez por minuto.
+let FLIKI = 'https://api.fliki.ai/v1'; // FLIKI_API_URL permite apuntar a un servidor de pruebas
+const FLIKI_MAX_CHARS = 10000;
+const FLIKI_ESTILOS = ['biblical', 'cinematic', 'realistic', 'illustration', 'fantasyArt', 'waterColor', 'filmNoir', 'anime',
+    'comicBook', 'threeDimensionModel', 'lineArt', 'modelingCompound', 'whimsical', 'tinyWorld', 'technicalIllustration'];
+const FLIKI_ANIMACIONES = ['Mix:Subtle Flow', 'Mix', 'Mix:Dramatic', 'None'];
+const FLIKI_MODELOS_VIDEO = ['runware-seedance-pro-fast', 'runware-p-video', 'runware-pixverse-v5-fast', 'runware-ltx-2-fast', 'runware-kling-2.5-turbo'];
+
+async function fliki(clave, metodo, ruta, cuerpo) {
+    if (!clave) throw new HttpError(503, 'Falta la clave de Fliki (Configuración)');
+    const res = await fetch(FLIKI + ruta, {
+        method: metodo,
+        headers: { Authorization: `Bearer ${clave}`, 'Content-Type': 'application/json' },
+        ...(cuerpo && { body: JSON.stringify(cuerpo) }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 401 || res.status === 403) throw new HttpError(400, 'Fliki rechaza la clave (no válida o sin acceso a la API: requiere plan Premium).');
+    if (res.status === 429) throw new HttpError(429, 'Límite de Fliki alcanzado (10 peticiones cada 10 minutos). Espera unos minutos.');
+    if (!res.ok || data.success === false) {
+        const msg = data.message || data.error?.message || data.error || `HTTP ${res.status}`;
+        throw new HttpError(502, `Fliki: ${typeof msg === 'string' ? msg : JSON.stringify(msg)}`);
+    }
+    return data.data ?? data;
+}
+
+// Voces en español (se guardan en caché un día para no gastar el cupo de peticiones).
+async function vocesFliki(env, cfg, refrescar) {
+    const cache = await env.DB.prepare("SELECT valor, actualizado_en FROM configuracion WHERE clave = 'FLIKI_VOICES_CACHE'").first();
+    if (cache && !refrescar && Date.now() - new Date(cache.actualizado_en) < 86400000) return JSON.parse(cache.valor);
+    const idiomas = await fliki(cfg.FLIKI_API_KEY, 'GET', '/languages');
+    const lista = Array.isArray(idiomas) ? idiomas : idiomas.languages || [];
+    // Respuesta documentada: [{ _id, name: "Spanish", slug: "es" }]
+    const es = lista.find((l) => l.slug === 'es') || lista.find((l) => /^(spanish|español)/i.test(l.name || ''));
+    if (!es) throw new HttpError(502, 'Fliki: no se encontró el idioma español en /languages');
+    const mapa = (v, dialecto = '') => ({
+        id: v._id, nombre: v.name, genero: v.gender, ultra: v.isUltra === true || v.isUltra === 'true',
+        muestra: v.audioSample || null, dialecto,
+    });
+    const lista2 = (r) => (Array.isArray(r) ? r : r.voices || []);
+    // Dialectos documentados: [{ _id, name: "Spanish (Mexico)", slug: "es-mx" }]
+    const dialectos = lista2(await fliki(cfg.FLIKI_API_KEY, 'GET', '/dialects')).filter((d) => /^es(-|$)/i.test(d.slug || ''));
+    let voces = lista2(await fliki(cfg.FLIKI_API_KEY, 'GET', `/voices?languageId=${encodeURIComponent(es._id)}`)).map((v) => mapa(v));
+    if (!voces.length) {
+        // Si hace falta el dialecto: España, México y EE. UU. primero (máx. 3 peticiones por el límite de Fliki).
+        const orden = ['es-es', 'es-mx', 'es-us'];
+        const elegidos = [...dialectos].sort((x, y) => (orden.indexOf(x.slug) + 1 || 9) - (orden.indexOf(y.slug) + 1 || 9)).slice(0, 3);
+        for (const d of elegidos) {
+            const r = await fliki(cfg.FLIKI_API_KEY, 'GET', `/voices?languageId=${encodeURIComponent(es._id)}&dialectId=${encodeURIComponent(d._id)}`);
+            voces.push(...lista2(r).map((v) => mapa(v, d.name)));
+        }
+    }
+    if (!voces.length) throw new HttpError(502, 'Fliki no devolvió voces en español');
+    await env.DB.prepare(`INSERT INTO configuracion (clave, valor) VALUES ('FLIKI_VOICES_CACHE', ?1)
+        ON CONFLICT (clave) DO UPDATE SET valor = ?1, actualizado_en = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`).bind(JSON.stringify(voces)).run();
+    return voces;
+}
+
+// Crea uno o varios vídeos (uno por parte) en una sola petición.
+async function crearVideoFliki(env, cfg, b, u) {
+    if (!cfg.FLIKI_VOICE_ID) throw new HttpError(400, 'Elige una voz de Fliki en Configuración');
+    const partes = (Array.isArray(b.partes) ? b.partes : []).map((t) => String(t).trim()).filter(Boolean);
+    if (!partes.length) throw new HttpError(400, 'No hay guion para el vídeo');
+    if (partes.length > 6) throw new HttpError(400, 'Máximo 6 partes por vídeo');
+    const largo = partes.find((t) => t.length > FLIKI_MAX_CHARS);
+    if (largo) throw new HttpError(400, `Cada parte admite como máximo ${FLIKI_MAX_CHARS} caracteres en la API de Fliki`);
+    const estilo = FLIKI_ESTILOS.includes(b.artStyle) ? b.artStyle : 'biblical';
+    const titulo = String(b.titulo || 'YAiContenido').slice(0, 80);
+    const payload = partes.map((content, i) => ({
+        workflowType: 'script',
+        workflowFormat: 'video',
+        content,
+        voiceId: cfg.FLIKI_VOICE_ID,
+        aspectRatio: ['16:9', '9:16', '1:1'].includes(b.aspectRatio) ? b.aspectRatio : '16:9',
+        resolution: '1080p',
+        visuals: 'ai',
+        artStyle: estilo,
+        // Los clips de vídeo IA solo se generan con un aiVideoModel (plan de pago); sin él, solo imágenes animadas.
+        ...(FLIKI_MODELOS_VIDEO.includes(b.modeloVideo) && +b.clipPct > 0 && {
+            aiVideoModel: b.modeloVideo,
+            aiVideoClipPercentage: Math.max(1, Math.min(100, Math.round(+b.clipPct))),
+        }),
+        generateSfx: !!b.efectos,
+        addPauses: b.pausas !== false,
+        imageAnimationPreset: FLIKI_ANIMACIONES.includes(b.animacion) ? b.animacion : 'Mix:Subtle Flow',
+        bgMusicVolume: Math.max(0, Math.min(100, Math.round(b.musica ?? 20))),
+        highlightSubtitles: !!b.subtitulos,
+        sceneBreakdown: b.lineas ? 'lineBreak' : 'auto',
+        fileName: partes.length > 1 ? `${titulo} — parte ${i + 1}` : titulo,
+        ...(cfg.FLIKI_BRAND_ID && { brandId: cfg.FLIKI_BRAND_ID }),
+        shouldExport: true,
+    }));
+    const r = await fliki(cfg.FLIKI_API_KEY, 'POST', '/generate/video', { payload, file: 'YAiContenido' });
+    const ids = r.filesCreated || [];
+    if (!ids.length) throw new HttpError(502, 'Fliki no devolvió ningún archivo');
+    const estado = {
+        creado: new Date().toISOString(), por: u.nombre, estilo, consultado: 0,
+        archivos: ids.map((id, i) => ({ id, parte: i + 1, estado: 'queued', progreso: 0, descarga: null })),
+    };
+    if (b.ideaId) await env.DB.prepare('UPDATE ideas SET fliki = ? WHERE id = ?').bind(JSON.stringify(estado), +b.ideaId).run();
+    return estado;
+}
+
+const FLIKI_FINAL = new Set(['success', 'error', 'canceled']);
+async function estadoFliki(env, cfg, ideaId) {
+    const fila = await env.DB.prepare('SELECT fliki FROM ideas WHERE id = ?').bind(ideaId).first();
+    if (!fila?.fliki) throw new HttpError(404, 'Esta idea no tiene vídeo en Fliki');
+    const est = JSON.parse(fila.fliki);
+    const pendientes = est.archivos.filter((a) => !FLIKI_FINAL.has(a.estado));
+    if (!pendientes.length || Date.now() - (est.consultado || 0) < 60000) return est; // máx. 1 consulta/min
+    for (const a of pendientes) {
+        const d = await fliki(cfg.FLIKI_API_KEY, 'GET', `/generate/status?fileId=${encodeURIComponent(a.id)}`);
+        a.estado = d.status || a.estado;
+        a.progreso = typeof d.progress === 'number' ? d.progress : a.progreso;
+        a.descarga = d.download || a.descarga;
+    }
+    est.consultado = Date.now();
+    await env.DB.prepare('UPDATE ideas SET fliki = ? WHERE id = ?').bind(JSON.stringify(est), ideaId).run();
+    return est;
+}
+
 // ---------- Configuración (claves editables desde la web) ----------
 // Los valores guardados en D1 desde la pestaña Configuración tienen prioridad sobre
 // los secretos del Worker. Las claves nunca se devuelven al navegador, solo enmascaradas.
-const AJUSTES = ['ANTHROPIC_API_KEY', 'YOUTUBE_API_KEY', 'CLAUDE_MODEL'];
-const SECRETOS = new Set(['ANTHROPIC_API_KEY', 'YOUTUBE_API_KEY']);
+const AJUSTES = ['ANTHROPIC_API_KEY', 'YOUTUBE_API_KEY', 'CLAUDE_MODEL', 'FLIKI_API_KEY', 'FLIKI_VOICE_ID', 'FLIKI_VOICE_NAME', 'FLIKI_BRAND_ID'];
+const SECRETOS = new Set(['ANTHROPIC_API_KEY', 'YOUTUBE_API_KEY', 'FLIKI_API_KEY']);
 const MODELOS = ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'];
 
 // Las claves de la consola de Claude se envían como x-api-key; otros tipos de credencial
@@ -320,6 +442,8 @@ async function probarClave(clave, valor, workspace) {
         }
     }
     if (clave === 'CLAUDE_MODEL' && !MODELOS.includes(valor)) throw new HttpError(400, 'Modelo no válido');
+    if (clave === 'FLIKI_API_KEY') await fliki(valor, 'GET', '/languages'); // lanza error si la clave no vale
+    if (clave === 'FLIKI_BRAND_ID' && !/^[\w-]{6,64}$/.test(valor)) throw new HttpError(400, 'ID de kit de marca no válido (cópialo del final de su URL en app.fliki.ai/brand-kits)');
 }
 
 // ---------- Esquema ----------
@@ -331,12 +455,12 @@ async function asegurarEsquema(DB) {
     const { results } = await DB.prepare('PRAGMA table_info(ideas)').all();
     const hay = new Set(results.map((c) => c.name));
     const faltan = [
-        ['detalle', "TEXT NOT NULL DEFAULT ''"], ['guion', "TEXT NOT NULL DEFAULT ''"], ['guion_en', 'TEXT'], ['storyboard', 'TEXT'],
+        ['detalle', "TEXT NOT NULL DEFAULT ''"], ['guion', "TEXT NOT NULL DEFAULT ''"], ['guion_en', 'TEXT'], ['storyboard', 'TEXT'], ['fliki', 'TEXT'],
     ].filter(([col]) => !hay.has(col));
     for (const [col, tipo] of faltan) await DB.prepare(`ALTER TABLE ideas ADD COLUMN ${col} ${tipo}`).run();
     esquemaListo = true;
 }
-const COLS_IDEA = "id, titulo, nicho, estado, creado_por, creado_en, detalle, guion_en, length(guion) > 0 AS tiene_guion, storyboard IS NOT NULL AS tiene_storyboard";
+const COLS_IDEA = "id, titulo, nicho, estado, creado_por, creado_en, detalle, guion_en, length(guion) > 0 AS tiene_guion, storyboard IS NOT NULL AS tiene_storyboard, fliki";
 
 // ---------- API con sesión ----------
 async function api(req, env, url, u) {
@@ -352,6 +476,16 @@ async function api(req, env, url, u) {
     }
     if (p === '/api/youtube/canal' && m === 'GET') {
         return enviar(200, await canal((await configuracion(env)).cfg, url.searchParams.get('q') || ''));
+    }
+    if (p.startsWith('/api/fliki/')) {
+        await asegurarEsquema(DB);
+        const { cfg } = await configuracion(env);
+        if (p === '/api/fliki/voces' && m === 'GET') {
+            return enviar(200, { voces: await vocesFliki(env, cfg, url.searchParams.has('refrescar')), estilos: FLIKI_ESTILOS,
+                animaciones: FLIKI_ANIMACIONES, voz: cfg.FLIKI_VOICE_ID, maxChars: FLIKI_MAX_CHARS });
+        }
+        if (p === '/api/fliki/video' && m === 'POST') return enviar(200, await crearVideoFliki(env, cfg, await leerJson(req), u));
+        if (p === '/api/fliki/estado' && m === 'GET') return enviar(200, await estadoFliki(env, cfg, +url.searchParams.get('ideaId')));
     }
     if (p === '/api/storyboard' && m === 'POST') {
         const b = await leerJson(req);
@@ -392,6 +526,7 @@ async function api(req, env, url, u) {
             const workspace = String(b.workspace ?? '').trim();
             if (workspace && !/^[\w-]{3,100}$/.test(workspace)) throw new HttpError(400, 'ID de espacio de trabajo no válido');
             const modo = await probarClave(clave, valor, workspace);
+            if (clave === 'FLIKI_API_KEY') await DB.prepare("DELETE FROM configuracion WHERE clave = 'FLIKI_VOICES_CACHE'").run();
             if (clave === 'ANTHROPIC_API_KEY') {
                 const guardar = DB.prepare(`INSERT INTO configuracion (clave, valor, actualizado_por) VALUES (?1, ?2, ?3)
                     ON CONFLICT (clave) DO UPDATE SET valor = ?2, actualizado_por = ?3`);
@@ -420,7 +555,8 @@ async function api(req, env, url, u) {
     if (p === '/api/ideas' && m === 'GET') {
         // La lista no incluye el texto del guion (puede ser largo); se pide idea a idea.
         const { results } = await DB.prepare(`SELECT ${COLS_IDEA} FROM ideas ORDER BY creado_en DESC, id DESC`).all();
-        return enviar(200, results.map((r) => ({ ...r, tiene_guion: !!r.tiene_guion, tiene_storyboard: !!r.tiene_storyboard })));
+        return enviar(200, results.map((r) => ({ ...r, tiene_guion: !!r.tiene_guion, tiene_storyboard: !!r.tiene_storyboard,
+            fliki: r.fliki ? JSON.parse(r.fliki) : null })));
     }
     if (p === '/api/ideas' && m === 'POST') {
         const b = await leerJson(req);
@@ -433,7 +569,8 @@ async function api(req, env, url, u) {
         if (m === 'GET') {
             const idea = await DB.prepare('SELECT * FROM ideas WHERE id = ?').bind(+x[1]).first();
             if (!idea) throw new HttpError(404, 'Idea no encontrada');
-            return enviar(200, { ...idea, storyboard: idea.storyboard ? JSON.parse(idea.storyboard) : null });
+            return enviar(200, { ...idea, storyboard: idea.storyboard ? JSON.parse(idea.storyboard) : null,
+                fliki: idea.fliki ? JSON.parse(idea.fliki) : null });
         }
         if (m === 'PATCH') {
             // Actualiza solo los campos enviados: estado, detalle y/o guion.
@@ -500,6 +637,7 @@ async function api(req, env, url, u) {
 
 export default {
     async fetch(req, env) {
+        if (env.FLIKI_API_URL) FLIKI = env.FLIKI_API_URL;
         const url = new URL(req.url);
         try {
             if (url.pathname === '/healthz') return new Response('ok');

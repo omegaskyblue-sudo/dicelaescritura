@@ -111,7 +111,7 @@ const json = (method, body) => ({ method, headers: { 'Content-Type': 'applicatio
 let pipeline = store.get('ef_pipeline', []);
 const ESTADOS = ['Idea', 'Guion', 'Edición', 'Publicado', 'Descartada'];
 function pintarPipeline() {
-    $('pipeline').innerHTML = pipeline.map((p, i) => `<li><span>${p.tiene_guion || p.guion ? '<span title="Tiene guion guardado">📄</span> ' : ''}${esc(p.titulo)} <small class="hint">· ${esc(p.nicho)}${
+    $('pipeline').innerHTML = pipeline.map((p, i) => `<li><span>${p.tiene_guion || p.guion ? '<span title="Tiene guion guardado">📄</span> ' : ''}${p.fliki ? '<span title="Vídeo en Fliki">🎬</span> ' : ''}${esc(p.titulo)} <small class="hint">· ${esc(p.nicho)}${
         p.creado_por ? ' · ' + esc(p.creado_por) : ''}</small></span>
         <button class="mini" data-guion="${i}">Guion</button>
         <select data-i="${i}">${ESTADOS.map((e) => `<option${e === p.estado ? ' selected' : ''}>${e}</option>`).join('')}</select>
@@ -219,6 +219,7 @@ function irAGuion({ titulo, detalle, idea }) {
     $('outRevision').innerHTML = '';
     if (idea?.guion) $('btnRevisar').click();
     pintarStoryboard(idea?.storyboard || null);
+    pintarFliki(idea?.fliki || null);
     $('btnGuionPrompt').click();
     irA('guion');
 }
@@ -508,6 +509,85 @@ $('btnStoryboard').addEventListener('click', async () => {
     finally { b.disabled = false; b.textContent = txt; }
 });
 
+// ---------- Vídeo con Fliki ----------
+const FK_ESTILOS = { biblical: 'Bíblico', cinematic: 'Cinematográfico', realistic: 'Realista', illustration: 'Ilustración',
+    fantasyArt: 'Arte fantástico', waterColor: 'Acuarela', filmNoir: 'Cine negro', anime: 'Anime', comicBook: 'Cómic',
+    threeDimensionModel: '3D', lineArt: 'Dibujo de línea', modelingCompound: 'Plastilina', whimsical: 'Caprichoso',
+    tinyWorld: 'Mundo en miniatura', technicalIllustration: 'Ilustración técnica' };
+const FK_ANIM = { 'Mix:Subtle Flow': 'Suave (recomendado)', Mix: 'Mixta', 'Mix:Dramatic': 'Dramática', None: 'Sin animación' };
+const FK_MAX = 9500; // margen bajo el límite de 10.000 caracteres de la API
+const FK_ESTADOS = { queued: 'En cola', processing: 'Procesando', success: 'Listo', error: 'Error', canceled: 'Cancelado' };
+$('fkEstilo').innerHTML = Object.entries(FK_ESTILOS).map(([v, t]) => `<option value="${v}">${t}</option>`).join('');
+$('fkAnim').innerHTML = Object.entries(FK_ANIM).map(([v, t]) => `<option value="${v}">${t}</option>`).join('');
+
+// Texto para Fliki: las escenas del storyboard (una por línea) o el guion sin las marcas [VISUAL: …].
+function textoFliki() {
+    if ($('fkEscenas').checked && storyboard?.escenas?.length) {
+        return { lineas: storyboard.escenas.map((e) => e.narracion.replace(/\s+/g, ' ').trim()).filter(Boolean), porLineas: true };
+    }
+    const guion = ($('gTexto').value.trim() || $('iaGuion').textContent.trim()).replace(/\[VISUAL:[^\]]*\]/gi, '');
+    return { lineas: guion.split(/\n+/).map((l) => l.trim()).filter(Boolean), porLineas: false };
+}
+// Agrupa líneas en partes de ≤ FK_MAX caracteres (una línea demasiado larga se corta por frases).
+function partirFliki(lineas) {
+    const piezas = lineas.flatMap((l) => l.length <= FK_MAX ? [l] : l.match(/[^.!?…]+[.!?…]*\s*/g).map((f) => f.trim()));
+    const partes = [];
+    let actual = '';
+    for (const pz of piezas) {
+        if (actual && (actual + '\n' + pz).length > FK_MAX) { partes.push(actual); actual = pz; }
+        else actual = actual ? actual + '\n' + pz : pz;
+    }
+    if (actual) partes.push(actual);
+    return partes;
+}
+
+let fkTimer = null;
+function pintarFliki(est) {
+    clearTimeout(fkTimer);
+    if (!est) { $('outFliki').innerHTML = ''; return; }
+    const pendiente = est.archivos.some((a) => !['success', 'error', 'canceled'].includes(a.estado));
+    $('outFliki').innerHTML = `<p class="hint">Creado el ${new Date(est.creado).toLocaleString('es')} por ${esc(est.por)} · estilo ${esc(FK_ESTILOS[est.estilo] || est.estilo)}</p>
+        ${est.archivos.map((a) => `<div class="escena"><b>${est.archivos.length > 1 ? `Parte ${a.parte}: ` : ''}${esc(FK_ESTADOS[a.estado] || a.estado)}</b>
+            ${a.estado === 'success' ? '' : `<progress max="100" value="${a.progreso || 0}"></progress> ${a.progreso || 0}%`}
+            <div>${a.descarga ? `<a class="boton" href="${esc(a.descarga)}" target="_blank" rel="noopener">Descargar MP4</a>` : ''}
+            <a class="boton gris" href="https://app.fliki.ai/editor/${encodeURIComponent(a.id)}" target="_blank" rel="noopener">Abrir en el editor de Fliki</a></div></div>`).join('')}
+        ${pendiente ? '<button class="mini" id="fkActualizar">Actualizar estado</button> <small class="hint">Se actualiza solo cada minuto.</small>' : ''}`;
+    if (pendiente) fkTimer = setTimeout(() => actualizarFliki(), 65000);
+}
+async function actualizarFliki() {
+    if (!ideaEnGuion?.id) return;
+    try {
+        const est = await api(`/api/fliki/estado?ideaId=${ideaEnGuion.id}`);
+        ideaEnGuion.fliki = est;
+        pintarFliki(est);
+    } catch (err) { $('outFliki').insertAdjacentHTML('beforeend', `<p class="error">⚠ ${esc(err.message)}</p>`); }
+}
+$('outFliki').addEventListener('click', (e) => { if (e.target.id === 'fkActualizar') actualizarFliki(); });
+
+$('btnFliki').addEventListener('click', async () => {
+    if (!MODO_DB || !ideaEnGuion?.id) return alert('Abre el guion desde una idea del pipeline (botón «Guion» o «Escribir guion») para poder seguir el vídeo.');
+    const { lineas, porLineas } = textoFliki();
+    if (!lineas.length) return alert('No hay guion. Escríbelo o pégalo en el revisor.');
+    const partes = partirFliki(lineas);
+    const total = lineas.join('\n').length;
+    if (ideaEnGuion.fliki && !confirm('Esta idea ya tiene un vídeo en Fliki. ¿Crear otro? (gasta créditos de nuevo)')) return;
+    if (!confirm(`Se enviarán ${total.toLocaleString('es')} caracteres${partes.length > 1 ? ` en ${partes.length} partes (la API admite ~10.000 por vídeo)` : ''} a Fliki, con estilo «${FK_ESTILOS[$('fkEstilo').value]}»${$('fkModelo').value ? ` y clips de vídeo IA en el ${$('fkClip').value}% de escenas (más caro)` : ''}. Gasta créditos de tu plan. ¿Continuar?`)) return;
+    const b = $('btnFliki'), txt = b.textContent;
+    b.disabled = true; b.textContent = 'Enviando a Fliki…';
+    try {
+        const est = await api('/api/fliki/video', json('POST', {
+            ideaId: ideaEnGuion.id, titulo: $('gTema').value, partes, lineas: porLineas,
+            aspectRatio: $('fkFormato').value, artStyle: $('fkEstilo').value, animacion: $('fkAnim').value,
+            modeloVideo: $('fkModelo').value, clipPct: +$('fkClip').value || 0, musica: +$('fkMusica').value,
+            subtitulos: $('fkSubs').checked, pausas: $('fkPausas').checked, efectos: $('fkSfx').checked,
+        }));
+        ideaEnGuion.fliki = est;
+        pintarFliki(est);
+        pintarPipeline();
+    } catch (err) { $('outFliki').innerHTML = `<p class="error">⚠ ${esc(err.message)}</p>`; }
+    finally { b.disabled = false; b.textContent = txt; }
+});
+
 $('btnAlRevisor').addEventListener('click', () => { $('gTexto').value = $('iaGuion').textContent; $('btnRevisar').click(); });
 
 // ---------- Equipo (solo con base de datos) ----------
@@ -566,11 +646,41 @@ $('listaUsuarios').addEventListener('click', async (ev) => {
 });
 
 // ---------- Configuración (solo administradores) ----------
+let fkVoces = [];
+async function cargarVoces(refrescar) {
+    const b = $('btnFkVoces'); b.disabled = true; b.textContent = 'Cargando…';
+    try {
+        const r = await api('/api/fliki/voces' + (refrescar ? '?refrescar' : ''));
+        fkVoces = r.voces;
+        $('fkVoz').innerHTML = '<option value="">— elige una voz —</option>' + fkVoces.map((v) =>
+            `<option value="${esc(v.id)}"${v.id === r.voz ? ' selected' : ''}>${esc(v.nombre)}${v.dialecto ? ` (${esc(v.dialecto)})` : ''} · ${esc(v.genero || '')}${v.ultra ? ' · ultrarrealista' : ''}</option>`).join('');
+        $('fkVoz').dispatchEvent(new Event('change'));
+    } catch (err) { fallo(err); }
+    finally { b.disabled = false; b.textContent = 'Cargar voces'; }
+}
+$('btnFkVoces').addEventListener('click', () => cargarVoces(fkVoces.length > 0));
+$('fkVoz').addEventListener('change', () => {
+    const v = fkVoces.find((x) => x.id === $('fkVoz').value);
+    $('fkMuestra').hidden = !v?.muestra;
+    if (v?.muestra) $('fkMuestra').src = v.muestra;
+});
+$('btnFkVoz').addEventListener('click', async () => {
+    const v = fkVoces.find((x) => x.id === $('fkVoz').value);
+    if (!v) return alert('Carga las voces y elige una.');
+    try {
+        await api('/api/configuracion', json('PUT', { clave: 'FLIKI_VOICE_ID', valor: v.id }));
+        await api('/api/configuracion', json('PUT', { clave: 'FLIKI_VOICE_NAME', valor: v.nombre }));
+        await pintarConfig();
+        alert(`Voz «${v.nombre}» guardada.`);
+    } catch (err) { fallo(err); }
+});
 const ORIGEN = { web: 'guardada desde la web', cloudflare: 'secreto de Cloudflare' };
 async function pintarConfig() {
     let c;
     try { c = await api('/api/configuracion'); } catch (err) { return fallo(err); }
     $('cfgModelo').innerHTML = c.modelos.map((m) => `<option${m === c.ajustes.CLAUDE_MODEL.valor ? ' selected' : ''}>${m}</option>`).join('');
+    const vz = c.ajustes.FLIKI_VOICE_NAME;
+    $('fkVozActual').textContent = vz?.valor ? `Voz actual: ${vz.valor}` : 'Sin voz elegida.';
     const ws = document.querySelector('form.ajuste [name=workspace]');
     if (ws) ws.value = c.workspace || '';
     document.querySelectorAll('form.ajuste').forEach((f) => {

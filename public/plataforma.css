@@ -81,3 +81,7 @@ td button.mini { margin: 0; }
 .escena p { margin: 4px 0; font-size: .9rem; }
 .escena .prompt { color: var(--muted); font-size: .85rem; }
 h4 { margin: 14px 0 4px; }
+a.boton { display: inline-block; background: var(--accent); color: #fff; padding: 6px 12px; border-radius: 6px; text-decoration: none; margin: 6px 6px 0 0; font-size: .9rem; }
+a.boton.gris { background: #555; }
+progress { width: 160px; vertical-align: middle; }
+#fkVozBloque audio { display: block; margin-top: 6px; width: 100%; max-width: 360px; }

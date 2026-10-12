@@ -69,5 +69,9 @@ npm run dev                                  # http://localhost:8787/plataforma.
 - **Plan gratuito de Cloudflare**: suficiente para un equipo pequeño; no se duerme y la base de datos no caduca.
   Si al iniciar sesión aparece el error *1102 (Worker exceeded resource limits)*, activa *Workers Paid*
   (5 $/mes): verificar contraseñas puede superar el límite de CPU del plan gratuito.
+- **Fliki (vídeo):** en *Configuración* pon la clave de API de Fliki (plan Premium), carga y elige una voz en español y,
+  opcionalmente, el ID de tu kit de marca. En *Guion → Vídeo con Fliki* se envía el guion (o las escenas del storyboard)
+  con imágenes IA (estilo «Bíblico» por defecto). La API admite 10.000 caracteres por vídeo: los guiones largos se
+  dividen en partes. Límite de Fliki: 10 peticiones cada 10 minutos, por eso el estado se consulta como mucho cada minuto.
 - Restringe la clave de YouTube en Google Cloud a "YouTube Data API v3". Importar un canal gasta ~5 unidades
   de la cuota diaria gratuita (10 000).

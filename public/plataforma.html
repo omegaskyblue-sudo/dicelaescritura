@@ -128,6 +128,30 @@
         <input id="sbEstilo" placeholder="e.g. classical oil painting, chiaroscuro, warm candlelight, cinematic 16:9"></label>
     <button id="btnStoryboard" class="ia">Crear storyboard con Claude</button>
     <div id="outStoryboard"></div>
+
+    <h3>Vídeo con Fliki</h3>
+    <p class="hint">Envía el guion a Fliki, que genera imágenes con IA, voz, subtítulos y música. La API admite hasta 10.000 caracteres
+        (~11 min) por vídeo; si el guion es más largo se divide en partes. El estado se consulta como mucho una vez por minuto.</p>
+    <div class="grid3">
+        <label>Formato <select id="fkFormato"><option value="16:9">YouTube 16:9</option><option value="9:16">Short 9:16</option><option value="1:1">Cuadrado 1:1</option></select></label>
+        <label>Estilo de imagen <select id="fkEstilo"></select></label>
+        <label>Animación de imágenes <select id="fkAnim"></select></label>
+        <label>Clips de vídeo IA <select id="fkModelo">
+            <option value="">Sin clips (solo imágenes animadas)</option>
+            <option value="runware-seedance-pro-fast">Seedance Pro Fast (el más barato)</option>
+            <option value="runware-kling-2.5-turbo">Kling 2.5 Turbo (cinematográfico)</option>
+            <option value="runware-p-video">P-Video</option>
+            <option value="runware-ltx-2-fast">LTX-2 Fast</option>
+            <option value="runware-pixverse-v5-fast">PixVerse v5 Fast</option></select></label>
+        <label>% de escenas con clip <input id="fkClip" type="number" value="10" min="0" max="100"></label>
+        <label>Volumen de música (0–100) <input id="fkMusica" type="number" value="20" min="0" max="100"></label>
+    </div>
+    <label class="check"><input type="checkbox" id="fkSubs" checked> Subtítulos resaltados (palabra a palabra)</label>
+    <label class="check"><input type="checkbox" id="fkPausas" checked> Pausas naturales entre frases</label>
+    <label class="check"><input type="checkbox" id="fkSfx"> Efectos de sonido automáticos</label>
+    <label class="check"><input type="checkbox" id="fkEscenas" checked> Usar las escenas del storyboard (una escena por línea)</label>
+    <button id="btnFliki" class="ia">Crear vídeo en Fliki</button>
+    <div id="outFliki"></div>
 </section>
 
 <!-- 4. METRICAS -->
@@ -212,6 +236,26 @@
         <p class="hint actual"></p>
         <button>Guardar</button>
     </form>
+    <h3>Fliki (vídeo)</h3>
+    <form class="ajuste" data-clave="FLIKI_API_KEY">
+        <label>Clave de API de Fliki <span class="hint">(app.fliki.ai/automation → Create Key → API; requiere plan Premium)</span>
+            <input type="password" autocomplete="off" placeholder="Clave de Fliki"></label>
+        <p class="hint actual"></p>
+        <button>Comprobar y guardar</button>
+    </form>
+    <form class="ajuste" data-clave="FLIKI_BRAND_ID">
+        <label>Kit de marca (opcional) <span class="hint">(logo, intro/outro, colores: abre el kit en app.fliki.ai/brand-kits y copia el ID del final de la URL)</span>
+            <input autocomplete="off" placeholder="ID del kit de marca"></label>
+        <p class="hint actual"></p>
+        <button>Guardar</button>
+    </form>
+    <div id="fkVozBloque">
+        <label>Voz en español <select id="fkVoz"><option value="">— guarda primero la clave y pulsa «Cargar voces» —</option></select></label>
+        <audio id="fkMuestra" controls hidden></audio>
+        <p class="hint" id="fkVozActual"></p>
+        <button id="btnFkVoces" class="copy">Cargar voces</button>
+        <button id="btnFkVoz">Guardar voz</button>
+    </div>
 </section>
 </main>
 
