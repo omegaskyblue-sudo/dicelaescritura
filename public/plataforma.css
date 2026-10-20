@@ -94,3 +94,13 @@ progress { width: 160px; vertical-align: middle; }
 #prodLog .error { margin: 0; }
 body.produciendo button.ia { opacity: .6; pointer-events: none; }
 #calendario input[type=datetime-local] { width: auto; margin: 0; padding: 4px; }
+
+/* Aviso de instalación como app */
+.instalar { position: fixed; left: 16px; right: 16px; bottom: 16px; z-index: 50; max-width: 520px; margin: 0 auto;
+    display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px;
+    background: #1f2226; color: #e8e8e8; border: 1px solid #f4c454; box-shadow: 0 6px 24px rgba(0,0,0,.35); }
+.instalar[hidden] { display: none; }
+.instalar img { width: 36px; height: 36px; border-radius: 8px; }
+.instalar span { flex: 1; font-size: 14px; }
+.instalar .si { background: #f4c454; color: #15171a; border: 0; font-weight: 600; }
+.instalar .no { background: transparent; color: inherit; border: 0; padding: 4px 8px; }

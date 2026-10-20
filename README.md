@@ -105,3 +105,9 @@ Limitaciones de Google:
   (En producción) para evitarlo.
 - Cuota diaria de 10.000 unidades: cada subida gasta ~1.600 (unas 6 subidas al día).
 - Miniaturas personalizadas: el canal debe estar verificado por teléfono.
+
+## Instalar como app
+
+La plataforma es una PWA. En Android/Chrome/Edge aparece el aviso «Instalar YAiContenido» (o menú ⋮ → Instalar app);
+en iPhone/iPad: Safari → Compartir → «Añadir a pantalla de inicio». Las páginas y la API nunca se guardan en caché:
+sin conexión solo se muestra un aviso.

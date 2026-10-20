@@ -8,7 +8,7 @@ const COOKIE = 'ef_sesion';
 const SESION_SEG = 30 * 86400;
 const VENTANA_MS = 15 * 60 * 1000, MAX_FALLOS = 10;
 const PBKDF2_ITER = 100000; // máximo que admite Web Crypto en Workers
-const PUBLICOS = new Set(['/login.html', '/plataforma.css', '/style.css']);
+const PUBLICOS = new Set(['/login.html', '/plataforma.css', '/style.css', '/manifest.webmanifest', '/sw.js', '/offline.html', '/app.js']);
 
 class HttpError extends Error { constructor(status, msg) { super(msg); this.status = status; } }
 
@@ -976,7 +976,7 @@ export default {
         try {
             if (url.pathname === '/healthz') return new Response('ok');
             if (url.pathname === '/api/login' && req.method === 'POST') return await login(req, env, url);
-            if (PUBLICOS.has(url.pathname)) return env.ASSETS.fetch(req);
+            if (PUBLICOS.has(url.pathname) || url.pathname.startsWith('/icons/')) return env.ASSETS.fetch(req);
 
             const u = await usuarioDeSesion(env, leerCookie(req));
             if (!u) {
